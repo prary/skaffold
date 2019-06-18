@@ -118,7 +118,7 @@ func podTemplate(clusterDetails *latest.ClusterDetails, image string, args []str
 	return pod
 }
 
-func setProxy(clusterDetails *latest.ClusterDetails, env []v1.EnvVar){
+func setProxy(clusterDetails *latest.ClusterDetails, env []v1.EnvVar) []v1.EnvVar{  
 	if(clusterDetails.HTTP_PROXY !=""){
 		proxy:= v1.EnvVar{
 			Name: "HTTP_PROXY",
