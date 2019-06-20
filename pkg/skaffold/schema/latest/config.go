@@ -228,10 +228,10 @@ type KanikoCache struct {
 
 // ClusterDetails *beta* describes how to do an on-cluster build.
 type ClusterDetails struct {
-	// HTTP_PROXY for kaniko pod
+	// HTTP_PROXY for kaniko pod.
 	HTTP_PROXY string `yaml:"HTTP_PROXY,omitempty"`
 	
-	// HTTPS_PROXY for kaniko pod
+	// HTTPS_PROXY for kaniko pod.
 	HTTPS_PROXY string `yaml:"HTTPS_PROXY,omitempty"`
 	
 	// PullSecret is the path to the secret key file.
