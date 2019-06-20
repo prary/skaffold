@@ -230,10 +230,10 @@ type KanikoCache struct {
 type ClusterDetails struct {
 	// HTTPProxy for kaniko pod.
 	HTTPProxy string `yaml:"HTTP_PROXY,omitempty"`
-	
+
 	// HTTPSProxy for kaniko pod.
 	HTTPSProxy string `yaml:"HTTPS_PROXY,omitempty"`
-	
+
 	// PullSecret is the path to the secret key file.
 	PullSecret string `yaml:"pullSecret,omitempty"`
 
