@@ -51,12 +51,13 @@ func Retrieve(clusterDetails *latest.ClusterDetails, artifact *latest.KanikoArti
 	}
 }
 
-func podTemplate(clusterDetails *latest.ClusterDetails, image string, args []string) *v1.Pod {
-	env:=[]v1.EnvVar{{
+func podTemplate(clusterDetails *latest.ClusterDetails, artifact *latest.KanikoArtifact, args []string) *v1.Pod {
+	env := []v1.EnvVar{{
 		Name:  "GOOGLE_APPLICATION_CREDENTIALS",
 		Value: "/secret/kaniko-secret",
-	},}
-	env=setProxy(clusterDetails, env)
+	}}
+	env = setProxy(clusterDetails, env)
+
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "kaniko-",
@@ -67,10 +68,10 @@ func podTemplate(clusterDetails *latest.ClusterDetails, image string, args []str
 			Containers: []v1.Container{
 				{
 					Name:            constants.DefaultKanikoContainerName,
-					Image:           image,
+					Image:           artifact.Image,
 					Args:            args,
 					ImagePullPolicy: v1.PullIfNotPresent,
-					Env: env,
+					Env:             env,
 					VolumeMounts: []v1.VolumeMount{
 						{
 							Name:      constants.DefaultKanikoSecretName,
@@ -91,6 +92,25 @@ func podTemplate(clusterDetails *latest.ClusterDetails, image string, args []str
 			},
 			},
 		},
+	}
+
+	if artifact.Cache != nil && artifact.Cache.HostPath != "" {
+		volumeMount := v1.VolumeMount{
+			Name:      constants.DefaultKanikoCacheDirName,
+			MountPath: constants.DefaultKanikoCacheDirMountPath,
+		}
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, volumeMount)
+
+		volume := v1.Volume{
+			Name: constants.DefaultKanikoCacheDirName,
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: artifact.Cache.HostPath,
+				},
+			},
+		}
+		pod.Spec.Volumes = append(pod.Spec.Volumes, volume)
 	}
 
 	if clusterDetails.DockerConfig == nil {
@@ -118,18 +138,18 @@ func podTemplate(clusterDetails *latest.ClusterDetails, image string, args []str
 	return pod
 }
 
-func setProxy(clusterDetails *latest.ClusterDetails, env []v1.EnvVar) []v1.EnvVar{
-	if(clusterDetails.HTTP_PROXY !=""){
-		proxy:= v1.EnvVar{
-			Name: "HTTP_PROXY",
-			Value: clusterDetails.HTTP_PROXY,
+func setProxy(clusterDetails *latest.ClusterDetails, env []v1.EnvVar) []v1.EnvVar {
+	if clusterDetails.HTTPProxy != "" {
+		proxy := v1.EnvVar{
+			Name:  "HTTP_PROXY",
+			Value: clusterDetails.HTTPProxy,
 		}
 		env = append(env, proxy)
 	}
-	if(clusterDetails.HTTPS_PROXY !=""){
-		proxy:= v1.EnvVar{
-			Name: "HTTPS_PROXY",
-			Value: clusterDetails.HTTPS_PROXY,
+	if clusterDetails.HTTPSProxy != "" {
+		proxy := v1.EnvVar{
+			Name:  "HTTPS_PROXY",
+			Value: clusterDetails.HTTPSProxy,
 		}
 		env = append(env, proxy)
 	}

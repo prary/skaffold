@@ -195,9 +195,10 @@ func TestPodTemplate(t *testing.T) {
 	})
 
 	for _, test := range tests {
-		t.Run(test.description, func(t *testing.T) {
-			actual := podTemplate(test.initial, test.image, test.args)
-			testutil.CheckDeepEqual(t, test.expected, actual, opt)
+		testutil.Run(t, test.description, func(t *testutil.T) {
+			actual := podTemplate(test.initial, &latest.KanikoArtifact{Image: test.image, Cache: &latest.KanikoCache{}}, test.args)
+
+			t.CheckDeepEqual(test.expected, actual, opt)
 		})
 	}
 }
@@ -216,19 +217,19 @@ func TestSetProxy(t *testing.T) {
 			expectedArgs:   []v1.EnvVar{},
 		}, {
 			description:    "set http proxy",
-			clusterDetails: &latest.ClusterDetails{HTTP_PROXY: "proxy.com"},
+			clusterDetails: &latest.ClusterDetails{HTTPPROXY: "proxy.com"},
 			env:            []v1.EnvVar{},
-			expectedArgs:   []v1.EnvVar{{Name: "HTTP_PROXY", Value: "proxy.com"}},
+			expectedArgs:   []v1.EnvVar{{Name: "HTTPPROXY", Value: "proxy.com"}},
 		}, {
 			description:    "set https proxy",
-			clusterDetails: &latest.ClusterDetails{HTTPS_PROXY: "proxy.com"},
+			clusterDetails: &latest.ClusterDetails{HTTPSPROXY: "proxy.com"},
 			env:            []v1.EnvVar{},
-			expectedArgs:   []v1.EnvVar{{Name: "HTTPS_PROXY", Value: "proxy.com"}},
+			expectedArgs:   []v1.EnvVar{{Name: "HTTPSPROXY", Value: "proxy.com"}},
 		}, {
 			description:    "set http and https proxy",
-			clusterDetails: &latest.ClusterDetails{HTTP_PROXY: "proxy.com", HTTPS_PROXY: "proxy.com"},
+			clusterDetails: &latest.ClusterDetails{HTTPPROXY: "proxy.com", HTTPSPROXY: "proxy.com"},
 			env:            []v1.EnvVar{},
-			expectedArgs:   []v1.EnvVar{{Name: "HTTP_PROXY", Value: "proxy.com"}, {Name: "HTTPS_PROXY", Value: "proxy.com"}},
+			expectedArgs:   []v1.EnvVar{{Name: "HTTPPROXY", Value: "proxy.com"}, {Name: "HTTPSPROXY", Value: "proxy.com"}},
 		},
 	}
 
