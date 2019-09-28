@@ -20,6 +20,7 @@ import (
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/util"
 )
 
+// !!! WARNING !!! This config version is already released, please DO NOT MODIFY the structs in this file.
 const Version string = "skaffold/v1beta15"
 
 // NewSkaffoldConfig creates a SkaffoldConfig
@@ -462,11 +463,16 @@ type HelmRelease struct {
 	// all parsed pairs after the flag.
 	SetValueTemplates map[string]string `yaml:"setValueTemplates,omitempty"`
 
+	// SetFiles are key-value pairs.
+	// If present, Skaffold will send `--set-file` flag to Helm CLI and append all pairs after the flag.
+	SetFiles map[string]string `yaml:"setFiles,omitempty"`
+
 	// Wait if `true`, Skaffold will send `--wait` flag to Helm CLI.
 	// Defaults to `false`.
 	Wait bool `yaml:"wait,omitempty"`
 
-	// RecreatePods if `true`, Skaffold will send `--recreate-pods` flag to Helm CLI.
+	// RecreatePods if `true`, Skaffold will send `--recreate-pods` flag to Helm CLI
+	// when upgrading a new version of a chart in subsequent dev loop deploy.
 	// Defaults to `false`.
 	RecreatePods bool `yaml:"recreatePods,omitempty"`
 
