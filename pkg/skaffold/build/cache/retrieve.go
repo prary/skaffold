@@ -87,7 +87,7 @@ func (c *cache) Build(ctx context.Context, out io.Writer, tags tag.ImageTags, ar
 			}
 
 		default:
-			color.Green.Fprintln(out, "Found")
+			color.Green.Fprintln(out, "Found %s", result.Location())
 		}
 
 		// Image is already built
