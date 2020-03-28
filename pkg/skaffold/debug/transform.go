@@ -40,12 +40,14 @@ Kubernetes requires that containers within a podspec are uniquely named.
 For example, a pod with two containers named `microservice` and `adapter` may be:
 
   debug.cloud.google.com/config: '{
-    "microservice":{"devtools":9229,"runtime":"nodejs"},
-    "adapter":{"jdwp":5005,"runtime":"jvm"}
+    "microservice":{"artifact":"node-example","runtime":"nodejs","ports":{"devtools":9229}},
+    "adapter":{"artifact":"java-example","runtime":"jvm","ports":{"jdwp":5005}}
   }'
 
-Each configuration is itself a JSON object with a `runtime` field identifying the
-language runtime, and a set of runtime-specific fields describing connection information.
+Each configuration is itself a JSON object of type `ContainerDebugConfiguration`, with an
+`artifact` recording the corresponding artifact's `image` in the skaffold.yaml,
+a `runtime` field identifying the language runtime, the working directory of the remote image (if known),
+and a set of debugging ports.
 */
 package debug
 
@@ -54,7 +56,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -64,6 +65,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// ContainerDebugConfiguration captures debugging information for a specific container.
+type ContainerDebugConfiguration struct {
+	// Artifact is the corresponding artifact's image name used in the skaffold.yaml
+	Artifact string `json:"artifact,omitempty"`
+	// Runtime represents the underlying language runtime (`go`, `jvm`, `nodejs`, `python`)
+	Runtime string `json:"runtime,omitempty"`
+	// WorkingDir is the working directory in the image configuration; may be empty
+	WorkingDir string `json:"workingDir,omitempty"`
+	// Ports is the list of debugging ports, keyed by protocol type
+	Ports map[string]uint32 `json:"ports,omitempty"`
+}
+
 // portAllocator is a function that takes a desired port and returns an available port
 // Ports are normally uint16 but Kubernetes ContainerPort.containerPort is an integer
 type portAllocator func(int32) int32
@@ -72,10 +85,10 @@ type portAllocator func(int32) int32
 type configurationRetriever func(string) (imageConfiguration, error)
 
 // imageConfiguration captures information from a docker/oci image configuration.
-// It also includes a "name", usually containing the corresponding artifact `name` from `skaffold.yaml`.
+// It also includes a "artifact", usually containing the corresponding artifact's' image name from `skaffold.yaml`.
 type imageConfiguration struct {
-	// name is the corresponding artifact's name
-	name string
+	// artifact is the corresponding artifact's image name (`pkg/skaffold/build.Artifact.ImageName`)
+	artifact string
 
 	labels     map[string]string
 	env        map[string]string
@@ -96,8 +109,13 @@ type containerTransformer interface {
 	Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) *ContainerDebugConfiguration
 }
 
-// debuggingSupportVolume is the name of the volume used to hold language runtime debugging support files
-const debuggingSupportFilesVolume = "debugging-support-files"
+const (
+	// debuggingSupportVolume is the name of the volume used to hold language runtime debugging support files.
+	debuggingSupportFilesVolume = "debugging-support-files"
+
+	// DebugConfigAnnotation is the name of the podspec annotation that records debugging configuration information.
+	DebugConfigAnnotation = "debug.cloud.google.com/config"
+)
 
 var containerTransforms []containerTransformer
 
@@ -178,7 +196,7 @@ func transformPodSpec(metadata *metav1.ObjectMeta, podSpec *v1.PodSpec, retrieve
 		}
 		// requiredImage, if not empty, is the image ID providing the debugging support files
 		if configuration, requiredImage, err := transformContainer(container, imageConfig, portAlloc); err == nil {
-			configuration.ArtifactImage = imageConfig.name
+			configuration.Artifact = imageConfig.artifact
 			configuration.WorkingDir = imageConfig.workingDir
 			configurations[container.Name] = *configuration
 			if len(requiredImage) > 0 {
@@ -221,7 +239,7 @@ func transformPodSpec(metadata *metav1.ObjectMeta, podSpec *v1.PodSpec, retrieve
 		if metadata.Annotations == nil {
 			metadata.Annotations = make(map[string]string)
 		}
-		metadata.Annotations["debug.cloud.google.com/config"] = encodeConfigurations(configurations)
+		metadata.Annotations[DebugConfigAnnotation] = encodeConfigurations(configurations)
 		return true
 	}
 	return false
@@ -286,7 +304,7 @@ func transformContainer(container *v1.Container, config imageConfiguration, port
 			return transform.Apply(container, config, portAlloc), transform.RuntimeSupportImage(), nil
 		}
 	}
-	return nil, "", errors.Errorf("unable to determine runtime for %q", container.Name)
+	return nil, "", fmt.Errorf("unable to determine runtime for %q", container.Name)
 }
 
 func encodeConfigurations(configurations map[string]ContainerDebugConfiguration) string {

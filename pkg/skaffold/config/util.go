@@ -17,14 +17,15 @@ limitations under the License.
 package config
 
 import (
+	"fmt"
 	"io/ioutil"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/imdario/mergo"
 	"github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 
@@ -36,6 +37,8 @@ import (
 const (
 	defaultConfigDir  = ".skaffold"
 	defaultConfigFile = "config"
+	tenDays           = time.Hour * 24 * 10
+	threeMonths       = time.Hour * 24 * 90
 )
 
 var (
@@ -51,6 +54,7 @@ var (
 
 	ReadConfigFile             = readConfigFileCached
 	GetConfigForCurrentKubectx = getConfigForCurrentKubectx
+	current                    = time.Now
 )
 
 // readConfigFileCached reads the specified file and returns the contents
@@ -73,7 +77,7 @@ func ResolveConfigFile(configFile string) (string, error) {
 	if configFile == "" {
 		home, err := homedir.Dir()
 		if err != nil {
-			return "", errors.Wrap(err, "retrieving home directory")
+			return "", fmt.Errorf("retrieving home directory: %w", err)
 		}
 		configFile = filepath.Join(home, defaultConfigDir, defaultConfigFile)
 	}
@@ -85,11 +89,11 @@ func ResolveConfigFile(configFile string) (string, error) {
 func ReadConfigFileNoCache(configFile string) (*GlobalConfig, error) {
 	contents, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		return nil, errors.Wrap(err, "reading global config")
+		return nil, fmt.Errorf("reading global config: %w", err)
 	}
 	config := GlobalConfig{}
 	if err := yaml.Unmarshal(contents, &config); err != nil {
-		return nil, errors.Wrap(err, "unmarshalling global skaffold config")
+		return nil, fmt.Errorf("unmarshalling global skaffold config: %w", err)
 	}
 	return &config, nil
 }
@@ -137,7 +141,7 @@ func getConfigForKubeContextWithGlobalDefaults(cfg *GlobalConfig, kubeContext st
 		// if values are unset for the current context, retrieve
 		// the global config and use its values as a fallback.
 		if err := mergo.Merge(&mergedConfig, cfg.Global, mergo.WithAppendSlice); err != nil {
-			return nil, errors.Wrapf(err, "merging context-specific and global config")
+			return nil, fmt.Errorf("merging context-specific and global config: %w", err)
 		}
 	}
 	return &mergedConfig, nil
@@ -156,7 +160,10 @@ func GetDefaultRepo(configFile, cliValue string) (string, error) {
 	return cfg.DefaultRepo, nil
 }
 
-func GetLocalCluster(configFile string) (bool, error) {
+func GetLocalCluster(configFile string, minikubeProfile string) (bool, error) {
+	if minikubeProfile != "" {
+		return true, nil
+	}
 	cfg, err := GetConfigForCurrentKubectx(configFile)
 	if err != nil {
 		return false, err
@@ -222,4 +229,33 @@ func IsUpdateCheckEnabled(configfile string) bool {
 		return true
 	}
 	return cfg == nil || cfg.UpdateCheck == nil || *cfg.UpdateCheck
+}
+
+func ShouldDisplayPrompt(configfile string) bool {
+	cfg, disabled := isSurveyPromptDisabled(configfile)
+	return !disabled && !recentlyPromptedOrTaken(cfg)
+}
+
+func isSurveyPromptDisabled(configfile string) (*ContextConfig, bool) {
+	cfg, err := GetConfigForCurrentKubectx(configfile)
+	if err != nil {
+		return nil, false
+	}
+	return cfg, cfg != nil && cfg.Survey != nil && *cfg.Survey.DisablePrompt
+}
+
+func recentlyPromptedOrTaken(cfg *ContextConfig) bool {
+	if cfg == nil || cfg.Survey == nil {
+		return false
+	}
+	return lessThan(cfg.Survey.LastTaken, threeMonths) || lessThan(cfg.Survey.LastPrompted, tenDays)
+}
+
+func lessThan(date string, duration time.Duration) bool {
+	t, err := time.Parse(time.RFC3339, date)
+	if err != nil {
+		logrus.Debugf("could not parse data %s", date)
+		return false
+	}
+	return current().Sub(t) < duration
 }

@@ -24,42 +24,6 @@ import (
 	"github.com/GoogleContainerTools/skaffold/testutil"
 )
 
-func TestSupportedKubernetesFormats(t *testing.T) {
-	tests := []struct {
-		description string
-		in          string
-		out         bool
-	}{
-		{
-			description: "yaml",
-			in:          "filename.yaml",
-			out:         true,
-		},
-		{
-			description: "yml",
-			in:          "filename.yml",
-			out:         true,
-		},
-		{
-			description: "json",
-			in:          "filename.json",
-			out:         true,
-		},
-		{
-			description: "txt",
-			in:          "filename.txt",
-			out:         false,
-		},
-	}
-	for _, test := range tests {
-		testutil.Run(t, test.description, func(t *testutil.T) {
-			actual := HasKubernetesFileExtension(test.in)
-
-			t.CheckDeepEqual(test.out, actual)
-		})
-	}
-}
-
 func TestExpandPathsGlob(t *testing.T) {
 	tests := []struct {
 		description string
@@ -167,8 +131,7 @@ func TestExpand(t *testing.T) {
 }
 
 func TestAbsFile(t *testing.T) {
-	tmpDir, cleanup := testutil.NewTempDir(t)
-	defer cleanup()
+	tmpDir := testutil.NewTempDir(t)
 	tmpDir.Touch("file")
 
 	expectedFile, err := filepath.Abs(filepath.Join(tmpDir.Root(), "file"))
@@ -336,9 +299,7 @@ func TestStrSliceInsert(t *testing.T) {
 }
 
 func TestIsFileIsDir(t *testing.T) {
-	tmpDir, cleanup := testutil.NewTempDir(t)
-	defer cleanup()
-	tmpDir.Touch("file")
+	tmpDir := testutil.NewTempDir(t).Touch("file")
 
 	testutil.CheckDeepEqual(t, false, IsFile(tmpDir.Root()))
 	testutil.CheckDeepEqual(t, true, IsDir(tmpDir.Root()))

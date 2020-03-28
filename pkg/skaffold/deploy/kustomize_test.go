@@ -19,11 +19,10 @@ package deploy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/ioutil"
 	"path/filepath"
 	"testing"
-
-	"github.com/pkg/errors"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/build"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/config"
@@ -118,8 +117,7 @@ func TestKustomizeDeploy(t *testing.T) {
 }
 
 func TestKustomizeCleanup(t *testing.T) {
-	tmpDir, cleanup := testutil.NewTempDir(t)
-	defer cleanup()
+	tmpDir := testutil.NewTempDir(t)
 
 	tests := []struct {
 		description string
@@ -212,7 +210,24 @@ func TestDependenciesForKustomization(t *testing.T) {
 			},
 		},
 		{
-			description:    "patches",
+			description: "extended patches with paths",
+			kustomizations: map[string]string{"kustomization.yaml": `patches:
+- path: patch1.yaml
+  target:
+    kind: Deployment`},
+			expected: []string{"kustomization.yaml", "patch1.yaml"},
+		},
+		{
+			description: "extended patches with inline",
+			kustomizations: map[string]string{"kustomization.yaml": `patches:
+- patch: |-
+    inline: patch
+  target:
+    kind: Deployment`},
+			expected: []string{"kustomization.yaml"},
+		},
+		{
+			description:    "patches legacy",
 			kustomizations: map[string]string{"kustomization.yaml": `patches: [patch1.yaml, path/patch2.yaml]`},
 			expected:       []string{"kustomization.yaml", "patch1.yaml", "path/patch2.yaml"},
 		},
@@ -434,6 +449,13 @@ func TestKustomizeBuildCommandArgs(t *testing.T) {
 	}
 }
 
+type testLabels struct {
+	labels map[string]string
+}
+
+func (t *testLabels) Labels() map[string]string {
+	return t.labels
+}
 func TestKustomizeRender(t *testing.T) {
 	type kustomizationCall struct {
 		folder      string
@@ -442,8 +464,10 @@ func TestKustomizeRender(t *testing.T) {
 	tests := []struct {
 		description    string
 		builds         []build.Artifact
+		labels         []Labeller
 		kustomizations []kustomizationCall
 		expected       string
+		shouldErr      bool
 	}{
 		{
 			description: "single kustomization",
@@ -462,6 +486,8 @@ func TestKustomizeRender(t *testing.T) {
 					folder: ".",
 					buildResult: `apiVersion: v1
 kind: Pod
+metadata:
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image1
@@ -473,6 +499,59 @@ spec:
 			},
 			expected: `apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    skaffold.dev/deployer: kustomize
+  namespace: default
+spec:
+  containers:
+  - image: gcr.io/project/image1:tag1
+    name: image1
+  - image: gcr.io/project/image2:tag2
+    name: image2
+`,
+		},
+		{
+			description: "single kustomization with user labels",
+			builds: []build.Artifact{
+				{
+					ImageName: "gcr.io/project/image1",
+					Tag:       "gcr.io/project/image1:tag1",
+				},
+				{
+					ImageName: "gcr.io/project/image2",
+					Tag:       "gcr.io/project/image2:tag2",
+				},
+			},
+			labels: []Labeller{
+				&testLabels{
+					labels: map[string]string{
+						"user/label": "test",
+					}},
+			},
+			kustomizations: []kustomizationCall{
+				{
+					folder: ".",
+					buildResult: `apiVersion: v1
+kind: Pod
+metadata:
+  namespace: default
+spec:
+  containers:
+  - image: gcr.io/project/image1
+    name: image1
+  - image: gcr.io/project/image2
+    name: image2
+`,
+				},
+			},
+			expected: `apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    skaffold.dev/deployer: kustomize
+    user/label: test
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image1:tag1
@@ -498,6 +577,8 @@ spec:
 					folder: "a",
 					buildResult: `apiVersion: v1
 kind: Pod
+metadata:
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image1
@@ -508,6 +589,8 @@ spec:
 					folder: "b",
 					buildResult: `apiVersion: v1
 kind: Pod
+metadata:
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image2
@@ -517,6 +600,10 @@ spec:
 			},
 			expected: `apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    skaffold.dev/deployer: kustomize
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image1:tag1
@@ -524,6 +611,10 @@ spec:
 ---
 apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    skaffold.dev/deployer: kustomize
+  namespace: default
 spec:
   containers:
   - image: gcr.io/project/image2:tag2
@@ -561,8 +652,8 @@ spec:
 				},
 			})
 			var b bytes.Buffer
-			err := k.Render(context.Background(), &b, test.builds, "")
-			t.CheckError(false, err)
+			err := k.Render(context.Background(), &b, test.builds, test.labels, "")
+			t.CheckError(test.shouldErr, err)
 			t.CheckDeepEqual(test.expected, b.String())
 		})
 	}

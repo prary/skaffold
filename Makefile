@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 GOOS ?= $(shell go env GOOS)
-GOARCH = amd64
+GOARCH ?= amd64
 BUILD_DIR ?= ./out
-ORG := github.com/GoogleContainerTools
-PROJECT := skaffold
+ORG = github.com/GoogleContainerTools
+PROJECT = skaffold
 REPOPATH ?= $(ORG)/$(PROJECT)
 RELEASE_BUCKET ?= $(PROJECT)
 GSC_BUILD_PATH ?= gs://$(RELEASE_BUCKET)/builds/$(COMMIT)
@@ -28,8 +28,11 @@ GCP_PROJECT ?= k8s-skaffold
 GKE_CLUSTER_NAME ?= integration-tests
 GKE_ZONE ?= us-central1-a
 
-SUPPORTED_PLATFORMS := linux-$(GOARCH) darwin-$(GOARCH) windows-$(GOARCH).exe
+SUPPORTED_PLATFORMS = linux-$(GOARCH) darwin-$(GOARCH) windows-$(GOARCH).exe
 BUILD_PACKAGE = $(REPOPATH)/cmd/skaffold
+
+SKAFFOLD_TEST_PACKAGES = ./pkg/skaffold/... ./cmd/... ./hack/... ./pkg/webhook/...
+GO_FILES = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -path "./pkg/diag/*")
 
 VERSION_PACKAGE = $(REPOPATH)/pkg/skaffold/version
 COMMIT = $(shell git rev-parse HEAD)
@@ -38,21 +41,13 @@ ifeq "$(strip $(VERSION))" ""
  override VERSION = $(shell git describe --always --tags --dirty)
 endif
 
-# Force using Go Modules and always read the dependencies from
-# the `vendor` folder.
-export GO111MODULE = on
-export GOFLAGS = -mod=vendor
-
-GO_GCFLAGS := "all=-trimpath=${PWD}"
-GO_ASMFLAGS := "all=-trimpath=${PWD}"
-
 LDFLAGS_linux = -static
 LDFLAGS_darwin =
 LDFLAGS_windows =
 
-GO_BUILD_TAGS_linux := "osusergo netgo static_build release"
-GO_BUILD_TAGS_darwin := "release"
-GO_BUILD_TAGS_windows := "release"
+GO_BUILD_TAGS_linux = "osusergo netgo static_build release"
+GO_BUILD_TAGS_darwin = "release"
+GO_BUILD_TAGS_windows = "release"
 
 GO_LDFLAGS = -X $(VERSION_PACKAGE).version=$(VERSION)
 GO_LDFLAGS += -X $(VERSION_PACKAGE).buildDate=$(shell date +'%Y-%m-%dT%H:%M:%SZ')
@@ -64,25 +59,32 @@ GO_LDFLAGS_windows =" $(GO_LDFLAGS)  -extldflags \"$(LDFLAGS_windows)\""
 GO_LDFLAGS_darwin =" $(GO_LDFLAGS)  -extldflags \"$(LDFLAGS_darwin)\""
 GO_LDFLAGS_linux =" $(GO_LDFLAGS)  -extldflags \"$(LDFLAGS_linux)\""
 
-GO_FILES := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
-DEPS_DIGEST := $(shell ./hack/skaffold-deps-sha1.sh)
+STATIK_FILES = cmd/skaffold/app/cmd/statik/statik.go
 
-$(BUILD_DIR)/$(PROJECT): $(BUILD_DIR)/$(PROJECT)-$(GOOS)-$(GOARCH)
-	cp $(BUILD_DIR)/$(PROJECT)-$(GOOS)-$(GOARCH) $@
+# Build for local development.
+$(BUILD_DIR)/$(PROJECT): $(STATIK_FILES) $(GO_FILES) $(BUILD_DIR)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build -tags $(GO_BUILD_TAGS_$(GOOS)) -ldflags $(GO_LDFLAGS_$(GOOS)) -o $@ $(BUILD_PACKAGE)
 
-$(BUILD_DIR)/$(PROJECT)-$(GOOS)-$(GOARCH): generate-statik $(GO_FILES) $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build -tags $(GO_BUILD_TAGS_$(GOOS)) -ldflags $(GO_LDFLAGS_$(GOOS)) -gcflags $(GO_GCFLAGS) -asmflags $(GO_ASMFLAGS) -o $@ $(BUILD_PACKAGE)
+.PHONY: install
+install: $(BUILD_DIR)/$(PROJECT)
+	cp $(BUILD_DIR)/$(PROJECT) $(GOPATH)/bin/$(PROJECT)
 
-$(BUILD_DIR)/$(PROJECT)-%-$(GOARCH): generate-statik $(GO_FILES) $(BUILD_DIR)
+# Build for a release.
+.PRECIOUS: $(foreach platform, $(SUPPORTED_PLATFORMS), $(BUILD_DIR)/$(PROJECT)-$(platform))
+
+.PHONY: cross
+cross: $(foreach platform, $(SUPPORTED_PLATFORMS), $(BUILD_DIR)/$(PROJECT)-$(platform).sha256)
+
+$(BUILD_DIR)/$(PROJECT)-%-$(GOARCH): $(STATIK_FILES) $(GO_FILES) $(BUILD_DIR) deploy/cross/Dockerfile
 	docker build \
-		--build-arg PROJECT=$(REPOPATH) \
-		--build-arg TARGETS=$*/$(GOARCH) \
-		--build-arg FLAG_LDFLAGS=$(GO_LDFLAGS_$(*)) \
-		--build-arg FLAG_TAGS=$(GO_BUILD_TAGS_$(*)) \
+		--build-arg GOOS=$* \
+		--build-arg GOARCH=$(GOARCH) \
+		--build-arg TAGS=$(GO_BUILD_TAGS_$(*)) \
+		--build-arg LDFLAGS=$(GO_LDFLAGS_$(*)) \
 		-f deploy/cross/Dockerfile \
 		-t skaffold/cross \
 		.
-	docker run --rm --entrypoint sh skaffold/cross -c "cat /build/skaffold*" > $@
+	docker run --rm skaffold/cross cat /build/skaffold > $@
 
 %.sha256: %
 	shasum -a 256 $< > $@
@@ -97,19 +99,14 @@ $(BUILD_DIR)/VERSION: $(BUILD_DIR)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-.PRECIOUS: $(foreach platform, $(SUPPORTED_PLATFORMS), $(BUILD_DIR)/$(PROJECT)-$(platform))
-
-.PHONY: cross
-cross: $(foreach platform, $(SUPPORTED_PLATFORMS), $(BUILD_DIR)/$(PROJECT)-$(platform).sha256)
-
 .PHONY: test
 test: $(BUILD_DIR)
-	@ ./hack/gotest.sh -count=1 -race -short -timeout=90s ./...
+	@ ./hack/gotest.sh -count=1 -race -short -timeout=90s $(SKAFFOLD_TEST_PACKAGES)
 	@ ./hack/checks.sh
 
 .PHONY: coverage
 coverage: $(BUILD_DIR)
-	@ ./hack/gotest.sh -count=1 -race -cover -short -timeout=90s -coverprofile=out/coverage.txt -coverpkg="./pkg/...,./cmd/..." ./...
+	@ ./hack/gotest.sh -count=1 -race -cover -short -timeout=90s -coverprofile=out/coverage.txt -coverpkg="./pkg/...,./cmd/..." $(SKAFFOLD_TEST_PACKAGES)
 	@- curl -s https://codecov.io/bash > $(BUILD_DIR)/upload_coverage && bash $(BUILD_DIR)/upload_coverage
 
 .PHONY: checks
@@ -118,14 +115,10 @@ checks: $(BUILD_DIR)
 
 .PHONY: quicktest
 quicktest:
-	@ ./hack/gotest.sh -short -timeout=60s ./...
-
-.PHONY: install
-install: $(GO_FILES) $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go install -tags $(GO_BUILD_TAGS_$(GOOS)) -ldflags $(GO_LDFLAGS_$(GOOS)) -gcflags $(GO_GCFLAGS) -asmflags $(GO_ASMFLAGS) $(BUILD_PACKAGE)
+	@ ./hack/gotest.sh -short -timeout=60s $(SKAFFOLD_TEST_PACKAGES)
 
 .PHONY: integration
-integration: generate-statik install
+integration: install
 ifeq ($(GCP_ONLY),true)
 	gcloud container clusters get-credentials \
 		$(GKE_CLUSTER_NAME) \
@@ -139,6 +132,7 @@ release: cross $(BUILD_DIR)/VERSION
 	docker build \
 		--build-arg VERSION=$(VERSION) \
 		-f deploy/skaffold/Dockerfile \
+		--target release \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:latest \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:$(VERSION) \
 		.
@@ -150,6 +144,7 @@ release: cross $(BUILD_DIR)/VERSION
 release-build: cross
 	docker build \
 		-f deploy/skaffold/Dockerfile \
+		--target release \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:edge \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:$(COMMIT) \
 		.
@@ -158,10 +153,11 @@ release-build: cross
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR) hack/bin
+	rm -rf $(BUILD_DIR) hack/bin $(STATIK_FILES)
 
 .PHONY: build_deps
 build_deps:
+	$(eval DEPS_DIGEST := $(shell ./hack/skaffold-deps-sha1.sh))
 	docker build \
 		-f deploy/skaffold/Dockerfile.deps \
 		-t gcr.io/$(GCP_PROJECT)/build_deps:$(DEPS_DIGEST) \
@@ -173,6 +169,7 @@ build_deps:
 skaffold-builder:
 	time docker build \
 		-f deploy/skaffold/Dockerfile \
+		--target builder \
 		-t gcr.io/$(GCP_PROJECT)/skaffold-builder \
 		.
 
@@ -184,6 +181,7 @@ integration-in-kind: skaffold-builder
 		-v $(HOME)/.gradle:/root/.gradle \
 		-v $(HOME)/.cache:/root/.cache \
 		-v /tmp/docker-config:/root/.docker/config.json \
+		-v $(CURDIR)/hack/maven/settings.xml:/root/.m2/settings.xml \
 		-e KUBECONFIG=/tmp/kind-config \
 		gcr.io/$(GCP_PROJECT)/skaffold-builder \
 		sh -c ' \
@@ -198,6 +196,7 @@ integration-in-docker: skaffold-builder
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v $(HOME)/.config/gcloud:/root/.config/gcloud \
 		-v $(GOOGLE_APPLICATION_CREDENTIALS):$(GOOGLE_APPLICATION_CREDENTIALS) \
+		-v $(CURDIR)/hack/maven/settings.xml:/root/.m2/settings.xml \
 		-e GCP_ONLY=$(GCP_ONLY) \
 		-e GCP_PROJECT=$(GCP_PROJECT) \
 		-e GKE_CLUSTER_NAME=$(GKE_CLUSTER_NAME) \
@@ -236,6 +235,7 @@ build-docs-preview:
 generate-schemas:
 	go run hack/schemas/main.go
 
-.PHONY: generate-statik
-generate-statik:
+# static files
+
+$(STATIK_FILES): go.mod docs/content/en/schemas/*
 	hack/generate-statik.sh

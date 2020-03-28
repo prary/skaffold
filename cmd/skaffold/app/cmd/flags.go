@@ -47,7 +47,7 @@ var FlagRegistry = []Flag{
 	{
 		Name:          "filename",
 		Shorthand:     "f",
-		Usage:         "Filename or URL to the pipeline file",
+		Usage:         "Path or URL to the Skaffold config file",
 		Value:         &opts.ConfigurationFile,
 		DefValue:      "skaffold.yaml",
 		FlagAddMethod: "StringVar",
@@ -60,7 +60,7 @@ var FlagRegistry = []Flag{
 		Value:         &opts.Profiles,
 		DefValue:      []string{},
 		FlagAddMethod: "StringSliceVar",
-		DefinedOn:     []string{"all"},
+		DefinedOn:     []string{"dev", "run", "debug", "deploy", "render", "build", "delete", "diagnose"},
 	},
 	{
 		Name:          "namespace",
@@ -69,7 +69,7 @@ var FlagRegistry = []Flag{
 		Value:         &opts.Namespace,
 		DefValue:      "",
 		FlagAddMethod: "StringVar",
-		DefinedOn:     []string{"all"},
+		DefinedOn:     []string{"dev", "run", "debug", "deploy", "render", "build", "delete"},
 	},
 	{
 		Name:          "default-repo",
@@ -78,7 +78,7 @@ var FlagRegistry = []Flag{
 		Value:         &opts.DefaultRepo,
 		DefValue:      "",
 		FlagAddMethod: "StringVar",
-		DefinedOn:     []string{"all"},
+		DefinedOn:     []string{"dev", "run", "debug", "deploy", "render", "build", "delete"},
 	},
 	{
 		Name:          "cache-artifacts",
@@ -135,7 +135,7 @@ var FlagRegistry = []Flag{
 		Value:         &opts.CustomLabels,
 		DefValue:      []string{},
 		FlagAddMethod: "StringSliceVar",
-		DefinedOn:     []string{"dev", "run", "debug", "deploy"},
+		DefinedOn:     []string{"dev", "run", "debug", "deploy", "render"},
 	},
 	{
 		Name:          "toot",
@@ -215,7 +215,7 @@ var FlagRegistry = []Flag{
 		Name:          "status-check",
 		Usage:         "Wait for deployed resources to stabilize",
 		Value:         &opts.StatusCheck,
-		DefValue:      false,
+		DefValue:      true,
 		FlagAddMethod: "BoolVar",
 		DefinedOn:     []string{"dev", "debug", "deploy", "run"},
 	},
@@ -261,6 +261,14 @@ var FlagRegistry = []Flag{
 		FlagAddMethod: "StringVar",
 		DefinedOn:     []string{"build", "debug", "dev", "run"},
 	},
+	{
+		Name:          "minikube-profile",
+		Usage:         "forces skaffold use the given minikube-profile and forces building against the docker daemon inside that minikube profile",
+		Value:         &opts.MinikubeProfile,
+		DefValue:      "",
+		FlagAddMethod: "StringVar",
+		DefinedOn:     []string{"build", "debug", "dev", "run"},
+	},
 }
 
 var commandFlags []*pflag.Flag
@@ -294,7 +302,10 @@ func AddFlags(fs *pflag.FlagSet, cmdName string) {
 			fs.AddFlag(f)
 		}
 	}
-	fs.MarkHidden("status-check")
+	// this is a temporary solution until we figure out an automated way to detect the
+	// minikube profile see
+	// https://github.com/GoogleContainerTools/skaffold/issues/3668
+	fs.MarkHidden("minikube-profile")
 }
 
 func hasCmdAnnotation(cmdName string, annotations []string) bool {

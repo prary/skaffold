@@ -20,9 +20,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/runtime"
 	serializer "k8s.io/apimachinery/pkg/runtime/serializer/json"
@@ -48,18 +48,6 @@ var (
 	}
 )
 
-// ContainerDebugConfiguration captures debugging information for a specific container
-type ContainerDebugConfiguration struct {
-	// ArtifactImage is the image reference used in the skaffold.yaml
-	ArtifactImage string `json:"artifactImage,omitempty"`
-	// Runtime represents the underlying language runtime (`go`, `jvm`, `nodejs`, `python`)
-	Runtime string `json:"runtime,omitempty"`
-	// WorkingDir is the working directory in the image configuration; may be empty
-	WorkingDir string `json:"workingDir,omitempty"`
-	// Ports is the list of debugging ports, keyed by protocol type
-	Ports map[string]uint32 `json:"ports,omitempty"`
-}
-
 // ApplyDebuggingTransforms applies language-platform-specific transforms to a list of manifests.
 func ApplyDebuggingTransforms(l kubectl.ManifestList, builds []build.Artifact, insecureRegistries map[string]bool) (kubectl.ManifestList, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -69,7 +57,7 @@ func ApplyDebuggingTransforms(l kubectl.ManifestList, builds []build.Artifact, i
 		if artifact := findArtifact(image, builds); artifact != nil {
 			return retrieveImageConfiguration(ctx, artifact, insecureRegistries)
 		}
-		return imageConfiguration{}, errors.Errorf("no build artifact for %q", image)
+		return imageConfiguration{}, fmt.Errorf("no build artifact for %q", image)
 	}
 	return applyDebuggingTransforms(l, retriever)
 }
@@ -83,7 +71,7 @@ func applyDebuggingTransforms(l kubectl.ManifestList, retriever configurationRet
 		} else if transformManifest(obj, retriever) {
 			manifest, err = encodeAsYaml(obj)
 			if err != nil {
-				return nil, errors.Wrap(err, "marshalling yaml")
+				return nil, fmt.Errorf("marshalling yaml: %w", err)
 			}
 			if logrus.IsLevelEnabled(logrus.DebugLevel) {
 				logrus.Debugln("Applied debugging transform:\n", string(manifest))
@@ -114,20 +102,20 @@ func retrieveImageConfiguration(ctx context.Context, artifact *build.Artifact, i
 		InsecureRegistries: insecureRegistries,
 	})
 	if err != nil {
-		return imageConfiguration{}, errors.Wrap(err, "could not connect to local docker daemon")
+		return imageConfiguration{}, fmt.Errorf("could not connect to local docker daemon: %w", err)
 	}
 
 	// the apiClient will go to the remote registry if local docker daemon is not available
 	manifest, err := apiClient.ConfigFile(ctx, artifact.Tag)
 	if err != nil {
 		logrus.Debugf("Error retrieving image manifest for %v: %v", artifact.Tag, err)
-		return imageConfiguration{}, errors.Wrapf(err, "retrieving image config for %q", artifact.Tag)
+		return imageConfiguration{}, fmt.Errorf("retrieving image config for %q: %w", artifact.Tag, err)
 	}
 
 	config := manifest.Config
 	logrus.Debugf("Retrieved local image configuration for %v: %v", artifact.Tag, config)
 	return imageConfiguration{
-		name:       artifact.ImageName,
+		artifact:   artifact.ImageName,
 		env:        envAsMap(config.Env),
 		entrypoint: config.Entrypoint,
 		arguments:  config.Cmd,

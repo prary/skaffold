@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/segmentio/textio"
 	yaml "gopkg.in/yaml.v2"
 
@@ -39,13 +38,23 @@ import (
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/runner/runcontext"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/util"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/warnings"
 )
+
+type patchPath struct {
+	Path  string `yaml:"path"`
+	Patch string `yaml:"patch"`
+}
+
+type patchWrapper struct {
+	*patchPath
+}
 
 // kustomization is the content of a kustomization.yaml file.
 type kustomization struct {
 	Bases                 []string             `yaml:"bases"`
 	Resources             []string             `yaml:"resources"`
-	Patches               []string             `yaml:"patches"`
+	Patches               []patchWrapper       `yaml:"patches"`
 	PatchesStrategicMerge []string             `yaml:"patchesStrategicMerge"`
 	CRDs                  []string             `yaml:"crds"`
 	PatchesJSON6902       []patchJSON6902      `yaml:"patchesJson6902"`
@@ -110,13 +119,13 @@ func (k *KustomizeDeployer) Deploy(ctx context.Context, out io.Writer, builds []
 
 	namespaces, err := manifests.CollectNamespaces()
 	if err != nil {
-		event.DeployInfoEvent(errors.Wrap(err, "could not fetch deployed resource namespace."+
-			"This might cause port-forward and deploy health-check to fail."))
+		event.DeployInfoEvent(fmt.Errorf("could not fetch deployed resource namespace."+
+			"This might cause port-forward and deploy health-check to fail: %w", err))
 	}
 
 	if err := k.kubectl.Apply(ctx, textio.NewPrefixWriter(out, " - "), manifests); err != nil {
 		event.DeployFailed(err)
-		return NewDeployErrorResult(errors.Wrap(err, "kubectl error"))
+		return NewDeployErrorResult(fmt.Errorf("kubectl error: %w", err))
 	}
 
 	event.DeployComplete()
@@ -131,7 +140,7 @@ func (k *KustomizeDeployer) renderManifests(ctx context.Context, out io.Writer, 
 
 	manifests, err := k.readManifests(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "reading manifests")
+		return nil, fmt.Errorf("reading manifests: %w", err)
 	}
 
 	if len(manifests) == 0 {
@@ -140,18 +149,18 @@ func (k *KustomizeDeployer) renderManifests(ctx context.Context, out io.Writer, 
 
 	manifests, err = manifests.ReplaceImages(builds)
 	if err != nil {
-		return nil, errors.Wrap(err, "replacing images in manifests")
+		return nil, fmt.Errorf("replacing images in manifests: %w", err)
 	}
 
 	manifests, err = manifests.SetLabels(merge(k, labellers...))
 	if err != nil {
-		return nil, errors.Wrap(err, "setting labels in manifests")
+		return nil, fmt.Errorf("setting labels in manifests: %w", err)
 	}
 
 	for _, transform := range manifestTransforms {
 		manifests, err = transform(manifests, builds, k.insecureRegistries)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to transform manifests")
+			return nil, fmt.Errorf("unable to transform manifests: %w", err)
 		}
 	}
 	return manifests, nil
@@ -161,11 +170,11 @@ func (k *KustomizeDeployer) renderManifests(ctx context.Context, out io.Writer, 
 func (k *KustomizeDeployer) Cleanup(ctx context.Context, out io.Writer) error {
 	manifests, err := k.readManifests(ctx)
 	if err != nil {
-		return errors.Wrap(err, "reading manifests")
+		return fmt.Errorf("reading manifests: %w", err)
 	}
 
 	if err := k.kubectl.Delete(ctx, textio.NewPrefixWriter(out, " - "), manifests); err != nil {
-		return errors.Wrap(err, "delete")
+		return fmt.Errorf("delete: %w", err)
 	}
 
 	return nil
@@ -184,8 +193,8 @@ func (k *KustomizeDeployer) Dependencies() ([]string, error) {
 	return deps.toList(), nil
 }
 
-func (k *KustomizeDeployer) Render(ctx context.Context, out io.Writer, builds []build.Artifact, filepath string) error {
-	manifests, err := k.renderManifests(ctx, out, builds, nil)
+func (k *KustomizeDeployer) Render(ctx context.Context, out io.Writer, builds []build.Artifact, labellers []Labeller, filepath string) error {
+	manifests, err := k.renderManifests(ctx, out, builds, labellers)
 	if err != nil {
 		return err
 	}
@@ -194,7 +203,7 @@ func (k *KustomizeDeployer) Render(ctx context.Context, out io.Writer, builds []
 	if filepath != "" {
 		f, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
-			return errors.Wrap(err, "opening file for writing manifests")
+			return fmt.Errorf("opening file for writing manifests: %w", err)
 		}
 		defer f.Close()
 		f.WriteString(manifests.String() + "\n")
@@ -202,6 +211,21 @@ func (k *KustomizeDeployer) Render(ctx context.Context, out io.Writer, builds []
 	}
 
 	fmt.Fprintln(manifestOut, manifests.String())
+	return nil
+}
+
+// UnmarshalYAML implements JSON unmarshalling by reading an inline yaml fragment.
+func (p *patchWrapper) UnmarshalYAML(unmarshal func(interface{}) error) (err error) {
+	pp := &patchPath{}
+	if err := unmarshal(&pp); err != nil {
+		var oldPathString string
+		if err := unmarshal(&oldPathString); err != nil {
+			return err
+		}
+		warnings.Printf("list of file paths deprecated: see https://github.com/kubernetes-sigs/kustomize/blob/master/docs/plugins/builtins.md#patchtransformer")
+		pp.Path = oldPathString
+	}
+	p.patchPath = pp
 	return nil
 }
 
@@ -248,11 +272,15 @@ func dependenciesForKustomization(dir string) ([]string, error) {
 		}
 	}
 
-	deps = append(deps, util.AbsolutePaths(dir, content.Patches)...)
 	deps = append(deps, util.AbsolutePaths(dir, content.PatchesStrategicMerge)...)
 	deps = append(deps, util.AbsolutePaths(dir, content.CRDs)...)
-	for _, patch := range content.PatchesJSON6902 {
-		deps = append(deps, filepath.Join(dir, patch.Path))
+	for _, patch := range content.Patches {
+		if patch.Path != "" {
+			deps = append(deps, filepath.Join(dir, patch.Path))
+		}
+	}
+	for _, jsonPatch := range content.PatchesJSON6902 {
+		deps = append(deps, filepath.Join(dir, jsonPatch.Path))
 	}
 	for _, generator := range content.ConfigMapGenerator {
 		deps = append(deps, util.AbsolutePaths(dir, generator.Files)...)
@@ -293,7 +321,7 @@ func (k *KustomizeDeployer) readManifests(ctx context.Context) (deploy.ManifestL
 		cmd := exec.CommandContext(ctx, "kustomize", buildCommandArgs(k.BuildArgs, kustomizePath)...)
 		out, err := util.RunCmdOut(cmd)
 		if err != nil {
-			return nil, errors.Wrap(err, "kustomize build")
+			return nil, fmt.Errorf("kustomize build: %w", err)
 		}
 
 		if len(out) == 0 {

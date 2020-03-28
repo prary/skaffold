@@ -18,6 +18,7 @@ package jib
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -25,8 +26,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/docker"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest"
@@ -70,7 +69,7 @@ func TestBuildJibMavenToDocker(t *testing.T) {
 
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenBuildArgsFunc, mavenBuildArgsFuncFake)
+			t.Override(&mavenBuildArgsFunc, getMavenBuildArgsFuncFake(t, MinimumJibMavenVersion))
 			t.NewTempDir().Touch("pom.xml").Chdir()
 			t.Override(&util.DefaultExecCommand, test.commands)
 			api := (&testutil.FakeAPIClient{}).Add("img:tag", "imageID")
@@ -104,16 +103,12 @@ func TestBuildJibMavenToRegistry(t *testing.T) {
 		{
 			description: "build",
 			artifact:    &latest.JibArtifact{},
-			commands: testutil.CmdRun(
-				"mvn fake-mavenBuildArgs-for-build -Dimage=img:tag",
-			),
+			commands:    testutil.CmdRun("mvn fake-mavenBuildArgs-for-build -Dimage=img:tag"),
 		},
 		{
 			description: "build with module",
 			artifact:    &latest.JibArtifact{Project: "module"},
-			commands: testutil.CmdRun(
-				"mvn fake-mavenBuildArgs-for-module-for-build -Dimage=img:tag",
-			),
+			commands:    testutil.CmdRun("mvn fake-mavenBuildArgs-for-module-for-build -Dimage=img:tag"),
 		},
 		{
 			description: "fail build",
@@ -129,7 +124,7 @@ func TestBuildJibMavenToRegistry(t *testing.T) {
 
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenBuildArgsFunc, mavenBuildArgsFuncFake)
+			t.Override(&mavenBuildArgsFunc, getMavenBuildArgsFuncFake(t, MinimumJibMavenVersion))
 			t.NewTempDir().Touch("pom.xml").Chdir()
 			t.Override(&util.DefaultExecCommand, test.commands)
 			t.Override(&docker.RemoteDigest, func(identifier string, _ map[string]bool) (string, error) {
@@ -167,8 +162,7 @@ func TestMavenWrapperDefinition(t *testing.T) {
 }
 
 func TestGetDependenciesMaven(t *testing.T) {
-	tmpDir, cleanup := testutil.NewTempDir(t)
-	defer cleanup()
+	tmpDir := testutil.NewTempDir(t)
 
 	tmpDir.Touch("build", "dep1", "dep2")
 	build := tmpDir.Path("build")
@@ -219,7 +213,9 @@ func TestGetDependenciesMaven(t *testing.T) {
 			))
 
 			// Change build file mod time
-			os.Chtimes(build, test.modTime, test.modTime)
+			if err := os.Chtimes(build, test.modTime, test.modTime); err != nil {
+				t.Fatal(err)
+			}
 
 			deps, err := getDependenciesMaven(ctx, tmpDir.Root(), &latest.JibArtifact{Project: "maven-test"})
 			if test.err != nil {
@@ -244,7 +240,7 @@ func TestGetCommandMaven(t *testing.T) {
 			jibArtifact:      latest.JibArtifact{},
 			filesInWorkspace: []string{},
 			expectedCmd: func(workspace string) exec.Cmd {
-				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs", "jib:_skaffold-files-v2", "--quiet"})
+				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs", "jib:_skaffold-files-v2", "--quiet", "--batch-mode"})
 			},
 		},
 		{
@@ -252,7 +248,7 @@ func TestGetCommandMaven(t *testing.T) {
 			jibArtifact:      latest.JibArtifact{},
 			filesInWorkspace: []string{"mvnw", "mvnw.bat"},
 			expectedCmd: func(workspace string) exec.Cmd {
-				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs", "jib:_skaffold-files-v2", "--quiet"})
+				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs", "jib:_skaffold-files-v2", "--quiet", "--batch-mode"})
 			},
 		},
 		{
@@ -260,13 +256,13 @@ func TestGetCommandMaven(t *testing.T) {
 			jibArtifact:      latest.JibArtifact{Project: "module"},
 			filesInWorkspace: []string{"mvnw", "mvnw.bat"},
 			expectedCmd: func(workspace string) exec.Cmd {
-				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs-for-module", "jib:_skaffold-files-v2", "--quiet"})
+				return MavenCommand.CreateCommand(ctx, workspace, []string{"fake-mavenArgs-for-module", "jib:_skaffold-files-v2", "--quiet", "--batch-mode"})
 			},
 		},
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenArgsFunc, mavenArgsFuncFake)
+			t.Override(&mavenArgsFunc, getMavenArgsFuncFake(t, MinimumJibMavenVersion))
 			tmpDir := t.NewTempDir().
 				Touch(test.filesInWorkspace...)
 
@@ -305,7 +301,7 @@ func TestGetSyncMapCommandMaven(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenBuildArgsFunc, mavenBuildArgsFuncFake)
+			t.Override(&mavenBuildArgsFunc, getMavenBuildArgsFuncFake(t, MinimumJibMavenVersionForSync))
 			cmd := getSyncMapCommandMaven(ctx, test.workspace, &test.jibArtifact)
 			expectedCmd := test.expectedCmd(test.workspace)
 			t.CheckDeepEqual(expectedCmd.Path, cmd.Path)
@@ -332,7 +328,7 @@ func TestGenerateMavenBuildArgs(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenBuildArgsFunc, mavenBuildArgsFuncFake)
+			t.Override(&mavenBuildArgsFunc, getMavenBuildArgsFuncFake(t, MinimumJibMavenVersion))
 			args := GenerateMavenBuildArgs("test-goal", test.image, &test.a, test.skipTests, test.insecureRegistries)
 			t.CheckDeepEqual(test.out, args)
 		})
@@ -344,37 +340,49 @@ func TestMavenBuildArgs(t *testing.T) {
 		description string
 		jibArtifact latest.JibArtifact
 		skipTests   bool
+		showColors  bool
 		expected    []string
 	}{
 		{
 			description: "single module",
 			jibArtifact: latest.JibArtifact{},
 			skipTests:   false,
+			showColors:  true,
 			expected:    []string{"-Djib.console=plain", "fake-mavenArgs", "prepare-package", "jib:test-goal"},
 		},
 		{
 			description: "single module skip tests",
 			jibArtifact: latest.JibArtifact{},
 			skipTests:   true,
+			showColors:  true,
 			expected:    []string{"-Djib.console=plain", "fake-mavenArgs", "-DskipTests=true", "prepare-package", "jib:test-goal"},
+		},
+		{
+			description: "single module plain console",
+			jibArtifact: latest.JibArtifact{},
+			skipTests:   true,
+			showColors:  false,
+			expected:    []string{"--batch-mode", "fake-mavenArgs", "-DskipTests=true", "prepare-package", "jib:test-goal"},
 		},
 		{
 			description: "multi module",
 			jibArtifact: latest.JibArtifact{Project: "module"},
 			skipTests:   false,
+			showColors:  true,
 			expected:    []string{"-Djib.console=plain", "fake-mavenArgs-for-module", "package", "jib:test-goal", "-Djib.containerize=module"},
 		},
 		{
 			description: "single module skip tests",
 			jibArtifact: latest.JibArtifact{Project: "module"},
 			skipTests:   true,
+			showColors:  true,
 			expected:    []string{"-Djib.console=plain", "fake-mavenArgs-for-module", "-DskipTests=true", "package", "jib:test-goal", "-Djib.containerize=module"},
 		},
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.Override(&mavenArgsFunc, mavenArgsFuncFake)
-			args := mavenBuildArgs("test-goal", &test.jibArtifact, test.skipTests)
+			t.Override(&mavenArgsFunc, getMavenArgsFuncFake(t, "test-version"))
+			args := mavenBuildArgs("test-goal", &test.jibArtifact, test.skipTests, test.showColors, "test-version")
 			t.CheckDeepEqual(test.expected, args)
 		})
 	}
@@ -389,19 +397,19 @@ func TestMavenArgs(t *testing.T) {
 		{
 			description: "single module",
 			jibArtifact: latest.JibArtifact{},
-			expected:    []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=" + MinimumJibMavenVersion, "--non-recursive"},
+			expected:    []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=test-version", "--non-recursive"},
 		},
 		{
 			description: "single module with extra flags",
 			jibArtifact: latest.JibArtifact{
 				Flags: []string{"--flag1", "--flag2"},
 			},
-			expected: []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=" + MinimumJibMavenVersion, "--flag1", "--flag2", "--non-recursive"},
+			expected: []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=test-version", "--flag1", "--flag2", "--non-recursive"},
 		},
 		{
 			description: "multi module",
 			jibArtifact: latest.JibArtifact{Project: "module"},
-			expected:    []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=" + MinimumJibMavenVersion, "--projects", "module", "--also-make"},
+			expected:    []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=test-version", "--projects", "module", "--also-make"},
 		},
 		{
 			description: "multi module with extra falgs",
@@ -409,31 +417,36 @@ func TestMavenArgs(t *testing.T) {
 				Project: "module",
 				Flags:   []string{"--flag1", "--flag2"},
 			},
-			expected: []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=" + MinimumJibMavenVersion, "--flag1", "--flag2", "--projects", "module", "--also-make"},
+			expected: []string{"jib:_skaffold-fail-if-jib-out-of-date", "-Djib.requiredVersion=test-version", "--flag1", "--flag2", "--projects", "module", "--also-make"},
 		},
 	}
 	for _, test := range tests {
-		args := mavenArgs(&test.jibArtifact)
+		args := mavenArgs(&test.jibArtifact, "test-version")
 		testutil.CheckDeepEqual(t, test.expected, args)
 	}
 }
 
-func mavenArgsFuncFake(a *latest.JibArtifact) []string {
-	if a.Project == "" {
-		return []string{"fake-mavenArgs"}
+func getMavenArgsFuncFake(t *testutil.T, expectedMinimumVersion string) func(*latest.JibArtifact, string) []string {
+	return func(a *latest.JibArtifact, minimumVersion string) []string {
+		t.CheckDeepEqual(expectedMinimumVersion, minimumVersion)
+		if a.Project == "" {
+			return []string{"fake-mavenArgs"}
+		}
+		return []string{"fake-mavenArgs-for-" + a.Project}
 	}
-	return []string{"fake-mavenArgs-for-" + a.Project}
 }
 
-// check that parameters are actually passed though
-func mavenBuildArgsFuncFake(goal string, a *latest.JibArtifact, skipTests bool) []string {
-	testString := ""
-	if skipTests {
-		testString = "-skipTests"
-	}
+func getMavenBuildArgsFuncFake(t *testutil.T, expectedMinimumVersion string) func(string, *latest.JibArtifact, bool, bool, string) []string {
+	return func(goal string, a *latest.JibArtifact, skipTests, showColors bool, minimumVersion string) []string {
+		t.CheckDeepEqual(expectedMinimumVersion, minimumVersion)
+		testString := ""
+		if skipTests {
+			testString = "-skipTests"
+		}
 
-	if a.Project == "" {
-		return []string{"fake-mavenBuildArgs-for-" + goal + testString}
+		if a.Project == "" {
+			return []string{"fake-mavenBuildArgs-for-" + goal + testString}
+		}
+		return []string{"fake-mavenBuildArgs-for-" + a.Project + "-for-" + goal + testString}
 	}
-	return []string{"fake-mavenBuildArgs-for-" + a.Project + "-for-" + goal + testString}
 }

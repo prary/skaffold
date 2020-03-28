@@ -18,12 +18,12 @@ package local
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"testing"
 
 	"github.com/docker/docker/api/types"
 	"github.com/google/go-cmp/cmp"
-	"github.com/pkg/errors"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/build"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/build/tag"
@@ -253,7 +253,7 @@ func TestNewBuilder(t *testing.T) {
 		shouldErr       bool
 		localBuild      latest.LocalBuild
 		expectedBuilder *Builder
-		localClusterFn  func(string) (bool, error)
+		localClusterFn  func(string, string) (bool, error)
 		localDockerFn   func(*runcontext.RunContext) (docker.LocalDaemon, error)
 	}{
 		{
@@ -268,7 +268,7 @@ func TestNewBuilder(t *testing.T) {
 			localDockerFn: func(*runcontext.RunContext) (docker.LocalDaemon, error) {
 				return dummyDaemon, nil
 			},
-			localClusterFn: func(string) (b bool, e error) {
+			localClusterFn: func(string, string) (b bool, e error) {
 				b = false //because this is false and localBuild.push is nil
 				return
 			},
@@ -290,7 +290,7 @@ func TestNewBuilder(t *testing.T) {
 			localDockerFn: func(*runcontext.RunContext) (docker.LocalDaemon, error) {
 				return dummyDaemon, nil
 			},
-			localClusterFn: func(string) (b bool, e error) {
+			localClusterFn: func(string, string) (b bool, e error) {
 				b = false
 				return
 			},

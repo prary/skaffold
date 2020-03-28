@@ -1,3 +1,230 @@
+# v1.6.0 Release - 03/19/2020
+
+*Note*: This release comes with a new config version `v2beta1`. To upgrade your `skaffold.yaml`, use `skaffold fix`. If you choose not to upgrade, skaffold will auto-upgrade as best as it can.
+
+Highlights: 
+* Support Dockerfile.dockerignore [#3837](https://github.com/GoogleContainerTools/skaffold/pull/3837)
+* Add new Auto sync option [#3382](https://github.com/GoogleContainerTools/skaffold/pull/3382)
+* Cross compile for linux-arm [#3819](https://github.com/GoogleContainerTools/skaffold/pull/3819)
+
+Fixes: 
+
+* Fix issues in `skaffold init` [#3840](https://github.com/GoogleContainerTools/skaffold/pull/3840)
+* Fix `skaffold debug` panic with nodejs [#3827](https://github.com/GoogleContainerTools/skaffold/pull/3827)
+* Fix this integration test on minikube [#3807](https://github.com/GoogleContainerTools/skaffold/pull/3807)
+* Fix `make quicktest` [#3820](https://github.com/GoogleContainerTools/skaffold/pull/3820)
+* Fix TestWaitForPodSucceeded flake [#3818](https://github.com/GoogleContainerTools/skaffold/pull/3818)
+* Fix ko sample [#3805](https://github.com/GoogleContainerTools/skaffold/pull/3805)
+
+Updates & Refactors:
+* Add dependabot config file [#3832](https://github.com/GoogleContainerTools/skaffold/pull/3832)
+* Upgrade kompose to 1.21.0 [#3806](https://github.com/GoogleContainerTools/skaffold/pull/3806)
+* Go 1.14 [#3775](https://github.com/GoogleContainerTools/skaffold/pull/3775)
+* add flag --survey to set to set/unset disable survey prompt [#3732](https://github.com/GoogleContainerTools/skaffold/pull/3732)
+* Bump schema to v2beta1 [#3809](https://github.com/GoogleContainerTools/skaffold/pull/3809)
+* [Diagnostics] Add validator interface. Add resource interface and PodValidator [#3742](https://github.com/GoogleContainerTools/skaffold/pull/3742)
+
+Docs Updates:
+
+* Simplify code that finds the artifact's type [#3825](https://github.com/GoogleContainerTools/skaffold/pull/3825)
+* Use new t.Cleanup() to simplify tests [#3815](https://github.com/GoogleContainerTools/skaffold/pull/3815)
+* cleanup common flags + better -f description [#3786](https://github.com/GoogleContainerTools/skaffold/pull/3786)
+* unhide status check and on by default [#3792](https://github.com/GoogleContainerTools/skaffold/pull/3792)
+* Normalize capitalization for types while port forwarding [#3803](https://github.com/GoogleContainerTools/skaffold/pull/3803)
+* Also clean up statik files [#3804](https://github.com/GoogleContainerTools/skaffold/pull/3804)
+
+Huge thanks goes out to all of our contributors for this release:
+
+- Agrin
+- Appu Goundan
+- Balint Pato
+- Brian de Alwis
+- Daniel Abdelsamed
+- David Gageot
+- Nick Kubala
+- Tejal Desai
+
+# v1.5.0 Release - 03/05/2020
+
+Highlights:
+* Add helm3 support to the helm deployer [#3738](https://github.com/GoogleContainerTools/skaffold/pull/3738)
+* Binaries for linux-arm #2068 [#3783](https://github.com/GoogleContainerTools/skaffold/pull/3783)
+
+New Features:
+* Autogenerate k8s manifests in skaffold init [#3703](https://github.com/GoogleContainerTools/skaffold/pull/3703)
+* Support go Templates in Custom Builder commands [#3754](https://github.com/GoogleContainerTools/skaffold/pull/3754)
+* Wire up debug events [#3645](https://github.com/GoogleContainerTools/skaffold/pull/3645)
+* Support inferred sync on Custom artifacts with a Dockerfile [#3752](https://github.com/GoogleContainerTools/skaffold/pull/3752)
+
+Fixes:
+* Fix analyze update check [#3722](https://github.com/GoogleContainerTools/skaffold/pull/3722)
+* report actual copy error when syncing files to containers [#3715](https://github.com/GoogleContainerTools/skaffold/pull/3715)
+* skip large files during skaffold init [#3717](https://github.com/GoogleContainerTools/skaffold/pull/3717)
+
+Updates & Refactors:
+* Upgrade Jib to 2.1.0 [#3728](https://github.com/GoogleContainerTools/skaffold/pull/3728)
+* Bump pack to 0.9.0 [#3776](https://github.com/GoogleContainerTools/skaffold/pull/3776)
+* Use heroku/color for our colors [#3757](https://github.com/GoogleContainerTools/skaffold/pull/3757)
+* skaffold init and buildpacks: skip dependencies [#3758](https://github.com/GoogleContainerTools/skaffold/pull/3758)
+* Faster make v2 [#3724](https://github.com/GoogleContainerTools/skaffold/pull/3724)
+* Allow Sync for non-root containers-hotreload example [#3680](https://github.com/GoogleContainerTools/skaffold/pull/3680)
+* Add profile option to RunBuilder in test helper [#3761](https://github.com/GoogleContainerTools/skaffold/pull/3761)
+* helm chart packaging: improve errors, logic & testability [#3743](https://github.com/GoogleContainerTools/skaffold/pull/3743)
+* Refactor helm deployer to prepare for helm3 support [#3729](https://github.com/GoogleContainerTools/skaffold/pull/3729)
+
+Docs Updates:
+* Link config management doc [#3723](https://github.com/GoogleContainerTools/skaffold/pull/3723)
+
+Huge thanks goes out to all of our contributors for this release:
+
+- Appu
+- Balint Pato
+- Brian de Alwis
+- Daniel Abdelsamed
+- Chanseok Oh
+- David Gageot
+- Idan Bidani
+- Nick Kubala
+- shlo
+- Tejal Desai
+- Thomas Strömberg
+
+
+# v1.4.0 Release - 02/20/2020
+
+*Note*: This release comes with a new config version `v2alpha4`. To upgrade your `skaffold.yaml`, use `skaffold fix`. If you choose not to upgrade, skaffold will auto-upgrade as best as it can.
+
+Highlights:
+* Add 2020 Roadmap [#3684](https://github.com/GoogleContainerTools/skaffold/pull/3684)
+
+Fixes: 
+* Allow 'make test' to work for users who do not have jq installed [#3696](https://github.com/GoogleContainerTools/skaffold/pull/3696)
+* retry pruning when skaffold could not prune local images due running containers [#3643](https://github.com/GoogleContainerTools/skaffold/pull/3643)
+* Fix npe when resetting status check state [#3658](https://github.com/GoogleContainerTools/skaffold/pull/3658)
+* fix nilpointer with skaffold init --skip-build [#3657](https://github.com/GoogleContainerTools/skaffold/pull/3657)
+* Support kustomize "extended" patches. #2909 [#3663](https://github.com/GoogleContainerTools/skaffold/pull/3663)
+
+Updates & Refactors:
+* Faster Makefile [#3706](https://github.com/GoogleContainerTools/skaffold/pull/3706)
+* Simpler code dealing with durations [#3709](https://github.com/GoogleContainerTools/skaffold/pull/3709)
+* Update Jib to 2.0.0 [#3707](https://github.com/GoogleContainerTools/skaffold/pull/3707)
+* Reduce default status check deadline to 2 mins [#3687](https://github.com/GoogleContainerTools/skaffold/pull/3687)
+* move unused pod validator code to pkg/diag [#3704](https://github.com/GoogleContainerTools/skaffold/pull/3704)
+* hidden --minikube-profile flag [#3691](https://github.com/GoogleContainerTools/skaffold/pull/3691)
+* [refactor] make DoInit() a proper controller [#3682](https://github.com/GoogleContainerTools/skaffold/pull/3682)
+* a hidden flag for simpler access to new init format [#3660](https://github.com/GoogleContainerTools/skaffold/pull/3660)
+* Disable all colors in Buildpacks’s output when not in a terminal [#3651](https://github.com/GoogleContainerTools/skaffold/pull/3651)
+* Build skaffold-builder image from a pre-pushed base [#3631](https://github.com/GoogleContainerTools/skaffold/pull/3631)
+* Update pack image to v0.8.1 [#3629](https://github.com/GoogleContainerTools/skaffold/pull/3629)
+* customizable jib feature minimum requirements [#3628](https://github.com/GoogleContainerTools/skaffold/pull/3628)
+
+Docs Updates: 
+* Add 2020 Roadmap [#3684](https://github.com/GoogleContainerTools/skaffold/pull/3684)
+
+Huge thanks goes out to all of our contributors for this release:
+
+- Appu Goundan
+- Balint Pato
+- Brian de Alwis
+- David Gageot
+- David Hovey
+- Max Resnick
+- Nick Kubala
+- Tejal Desai
+- Thomas Strömberg
+
+
+# v1.3.1 Release - 01/31/2020
+
+This is a minor release to fix skaffold image `gcr.io/k8s-skaffold/skaffold:v1.3.0` issue [#3622](https://github.com/GoogleContainerTools/skaffold/issues/3622)
+
+No changes since [v1.3.0](#v130-release---01302020)
+
+# v1.3.0 Release - 01/30/2020
+
+*Note*: This release comes with a new config version `v2alpha3`. To upgrade your `skaffold.yaml`, use `skaffold fix`. If you choose not to upgrade, skaffold will auto-upgrade as best it can.
+
+Highlights:
+* Enable multiple kustomizations in the kustomize deployer [#3585](https://github.com/GoogleContainerTools/skaffold/pull/3585)
+* Add `--kubernetes-manifest` flag to `skaffold init` to  
+   - turn off auto detection for manifests and 
+   - initialize deploy stanza with given flag value.
+* An empty sync config `sync: {}` will sync all files in the artifact workspace and infer destination [#3496](https://github.com/GoogleContainerTools/skaffold/pull/3496)
+* Configure on cluster builds to use random postfix when creating following secrets
+   - Docker config secret name via `randomDockerConfigSecret` and
+   - Pull secret name via `randomPullSecret`
+
+New Features: 
+* Add `--label` flag to `skaffold render`[#3558](https://github.com/GoogleContainerTools/skaffold/pull/3558)
+* Support `—-buildpack` flags on GCB [#3606](https://github.com/GoogleContainerTools/skaffold/pull/3606)
+* Support specific buildpacks for buildpack artifact [#3584](https://github.com/GoogleContainerTools/skaffold/pull/3584)
+* Add new config `disableValidation` to kubectl deploy config to disable validation [#3512](https://github.com/GoogleContainerTools/skaffold/pull/3512)
+* Implements setting environment variable in kaniko pod #3227 [#3287](https://github.com/GoogleContainerTools/skaffold/pull/3287)
+* Auto sync with Buildpacks [#3555](https://github.com/GoogleContainerTools/skaffold/pull/3555)
+
+Fixes: 
+* Encode artifact image-name and container WORKDIR in container debug info [#3564](https://github.com/GoogleContainerTools/skaffold/pull/3564)
+* Better detection if user is running from terminals. [#3611](https://github.com/GoogleContainerTools/skaffold/pull/3611)
+* Try use the Google hosted mirror of Maven Central [#3608](https://github.com/GoogleContainerTools/skaffold/pull/3608)
+* Better output for Docker commands [#3607](https://github.com/GoogleContainerTools/skaffold/pull/3607)
+* Fix nil pointer dereference when no account is set on gcloud. [#3597](https://github.com/GoogleContainerTools/skaffold/pull/3597)
+* Better error reporting for unrecognized builder error [#3595](https://github.com/GoogleContainerTools/skaffold/pull/3595)
+* Init command fixes
+   - no error in skaffold init if pre-existing skaffold.yaml is different from target file [#3575](https://github.com/GoogleContainerTools/skaffold/pull/3575)
+   - `skip-build` flag shouldn't detect builders [#3528](https://github.com/GoogleContainerTools/skaffold/pull/3528)
+* Automatically handle —no-pull option on `pack`. [#3576](https://github.com/GoogleContainerTools/skaffold/pull/3576)
+
+Updates & Refactors:
+* Use the same Docker client across Skaffold [#3602](https://github.com/GoogleContainerTools/skaffold/pull/3602)
+* Better k8s manifest parsing for `skaffold init` [#3531](https://github.com/GoogleContainerTools/skaffold/pull/3531)
+* Update dependencies
+   - golangcilint [#3534](https://github.com/GoogleContainerTools/skaffold/pull/3534)
+   - cli tools [#3553](https://github.com/GoogleContainerTools/skaffold/pull/3553)
+   - pack to v0.8.1 [#3593](https://github.com/GoogleContainerTools/skaffold/pull/3593)
+* Add verbosity flag to go tests on travis [#3548](https://github.com/GoogleContainerTools/skaffold/pull/3548)
+* Add unit test for `findRunImage` [#3560](https://github.com/GoogleContainerTools/skaffold/pull/3560)
+* Simpler artifact hasher [#3591](https://github.com/GoogleContainerTools/skaffold/pull/3591)
+* Build skaffold-builder image from a pre-pushed base [#3433](https://github.com/GoogleContainerTools/skaffold/pull/3433)
+* A bunch of refactor to init code
+  - [init refactor] cleanup on analyzers and moving things into a single package [#3538](https://github.com/GoogleContainerTools/skaffold/pull/3538)
+  - [init refactor] introducing init analyzers [#3533](https://github.com/GoogleContainerTools/skaffold/pull/3533)
+  - simplify init walk logic and many more.
+
+Docs Updates: 
+* Initial auto sync support design doc [#2901](https://github.com/GoogleContainerTools/skaffold/pull/2901)
+* Design proposal for new Debug Events [#3122](https://github.com/GoogleContainerTools/skaffold/pull/3122)
+* migrate Deployment in examples from extensions/v1beta1 to apps/v1 [#3572](https://github.com/GoogleContainerTools/skaffold/pull/3572)
+* Fix invalid package comments [#3589](https://github.com/GoogleContainerTools/skaffold/pull/3589)
+* Fixes the command for switching to getting-started dir after cloning  [#3574](https://github.com/GoogleContainerTools/skaffold/pull/3574)
+* Add Ruby/Rack application example with hot reload [#3515](https://github.com/GoogleContainerTools/skaffold/pull/3515)
+
+Huge thanks goes out to all of our contributors for this release:
+
+- Andrei Balici
+- Appu
+- Appu Goundan
+- arminbuerkle
+- Balint Pato
+- balopat
+- Brian de Alwis
+- Cornelius Weig
+- David Gageot
+- Dmitrii Ermakov
+- Jon Johnson
+- jonjohnsonjr
+- Miklós Kiss
+- Naoki Oketani
+- Nick Kubala
+- Nick Novitski
+- Prashant
+- Prashant Arya
+- Salahutdinov Dmitry
+- saschahofmann
+- Syed Awais Ali
+- Tejal Desai
+- Zac Bergquist
+
+
 # v1.2.0 Release - 01/16/2019
 
 *Note*: This release comes with a new config version `v2alpha2`. To upgrade your `skaffold.yaml`, use `skaffold fix`. If you choose not to upgrade, skaffold will auto-upgrade as best it can.

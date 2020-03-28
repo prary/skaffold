@@ -44,11 +44,11 @@ func watchUntilTimeout(ctx context.Context, timeout time.Duration, w watch.Inter
 	for {
 		select {
 		case <-ctx.Done():
-			return errors.New("context closed while waiting for condition")
+			return ctx.Err()
 		case event := <-w.ResultChan():
 			done, err := condition(&event)
 			if err != nil {
-				return fmt.Errorf("condition error: %s", err)
+				return err
 			}
 			if done {
 				return nil
@@ -87,7 +87,8 @@ func isPodSucceeded(ctx context.Context, podName string, b *kubectl.CLI) func(ev
 			return false, nil
 		case v1.PodFailed:
 			b.RunOut(ctx, "get", "events", "--field-selector", fmt.Sprintf("involvedObject.name=%s", podName))
-			return false, fmt.Errorf("pod already in terminal phase: %s", pod.Status.Phase)
+			logrus.Infof("pod already in terminal phase: %s", pod.Status.Phase)
+			return false, errors.New("pod has failed")
 		case v1.PodUnknown, v1.PodPending:
 			b.RunOut(ctx, "get", "events", "--field-selector", fmt.Sprintf("involvedObject.name=%s", podName))
 			return false, nil
