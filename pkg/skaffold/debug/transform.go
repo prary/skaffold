@@ -102,11 +102,11 @@ type containerTransformer interface {
 	// IsApplicable determines if this container is suitable to be transformed.
 	IsApplicable(config imageConfiguration) bool
 
-	// RuntimeSupportImage returns the associated duct-tape helper image required or empty string
-	RuntimeSupportImage() string
-
-	// Apply configures a container definition for debugging, returning the debug configuration details or `nil` if it could not be done
-	Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) *ContainerDebugConfiguration
+	// Apply configures a container definition for debugging, returning the debug configuration details
+	// and required initContainer (an empty string if not required), or return a non-nil error if
+	// the container could not be transformed.  The initContainer image is intended to install any
+	// required debug support tools.
+	Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (ContainerDebugConfiguration, string, error)
 }
 
 const (
@@ -117,7 +117,26 @@ const (
 	DebugConfigAnnotation = "debug.cloud.google.com/config"
 )
 
+// containerTransforms are the set of configured transformers
 var containerTransforms []containerTransformer
+
+// entrypointLaunchers is a list of known entrypoints that effectively just launches the container image's CMD
+// as a command-line.  These entrypoints are ignored.
+var entrypointLaunchers []string
+
+// isEntrypointLauncher checks if the given entrypoint is a known entrypoint launcher,
+// meaning an entrypoint that treats the image's CMD as a command-line.
+func isEntrypointLauncher(entrypoint []string) bool {
+	if len(entrypoint) != 1 {
+		return false
+	}
+	for _, knownEntrypoints := range entrypointLaunchers {
+		if knownEntrypoints == entrypoint[0] {
+			return true
+		}
+	}
+	return false
+}
 
 // transformManifest attempts to configure a manifest for debugging.
 // Returns true if changed, false otherwise.
@@ -178,6 +197,11 @@ func transformManifest(obj runtime.Object, retrieveImageConfiguration configurat
 // transformPodSpec attempts to configure a podspec for debugging.
 // Returns true if changed, false otherwise.
 func transformPodSpec(metadata *metav1.ObjectMeta, podSpec *v1.PodSpec, retrieveImageConfiguration configurationRetriever) bool {
+	// skip annotated podspecs — allows users to customize their own image
+	if _, found := metadata.Annotations[DebugConfigAnnotation]; found {
+		return false
+	}
+
 	portAlloc := func(desiredPort int32) int32 {
 		return allocatePort(podSpec, desiredPort)
 	}
@@ -195,10 +219,11 @@ func transformPodSpec(metadata *metav1.ObjectMeta, podSpec *v1.PodSpec, retrieve
 			continue
 		}
 		// requiredImage, if not empty, is the image ID providing the debugging support files
+		// `err != nil` means that the container did not or could not be transformed
 		if configuration, requiredImage, err := transformContainer(container, imageConfig, portAlloc); err == nil {
 			configuration.Artifact = imageConfig.artifact
 			configuration.WorkingDir = imageConfig.workingDir
-			configurations[container.Name] = *configuration
+			configurations[container.Name] = configuration
 			if len(requiredImage) > 0 {
 				logrus.Infof("%q requires debugging support image %q", container.Name, requiredImage)
 				containersRequiringSupport = append(containersRequiringSupport, container)
@@ -206,7 +231,7 @@ func transformPodSpec(metadata *metav1.ObjectMeta, podSpec *v1.PodSpec, retrieve
 			}
 			// todo: add this artifact to the watch list?
 		} else {
-			logrus.Infof("Image %q not configured for debugging: %v", container.Name, err)
+			logrus.Warnf("Image %q not configured for debugging: %v", container.Name, err)
 		}
 	}
 
@@ -282,7 +307,7 @@ func isPortAvailable(podSpec *v1.PodSpec, port int32) bool {
 // transformContainer rewrites the container definition to enable debugging.
 // Returns a debugging configuration description with associated language runtime support
 // container image, or an error if the rewrite was unsuccessful.
-func transformContainer(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (*ContainerDebugConfiguration, string, error) {
+func transformContainer(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (ContainerDebugConfiguration, string, error) {
 	// update image configuration values with those set in the k8s manifest
 	for _, envVar := range container.Env {
 		// FIXME handle ValueFrom?
@@ -299,12 +324,24 @@ func transformContainer(container *v1.Container, config imageConfiguration, port
 		config.arguments = container.Args
 	}
 
+	// Buildpack-generated images require special handling
+	if _, found := config.labels["io.buildpacks.stack.id"]; found && len(config.entrypoint) > 0 && config.entrypoint[0] == "/cnb/lifecycle/launcher" {
+		next := func(container *v1.Container, config imageConfiguration) (ContainerDebugConfiguration, string, error) {
+			return performContainerTransform(container, config, portAlloc)
+		}
+		return updateForCNBImage(container, config, next)
+	}
+
+	return performContainerTransform(container, config, portAlloc)
+}
+
+func performContainerTransform(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (ContainerDebugConfiguration, string, error) {
 	for _, transform := range containerTransforms {
 		if transform.IsApplicable(config) {
-			return transform.Apply(container, config, portAlloc), transform.RuntimeSupportImage(), nil
+			return transform.Apply(container, config, portAlloc)
 		}
 	}
-	return nil, "", fmt.Errorf("unable to determine runtime for %q", container.Name)
+	return ContainerDebugConfiguration{}, "", fmt.Errorf("unable to determine runtime for %q", container.Name)
 }
 
 func encodeConfigurations(configurations map[string]ContainerDebugConfiguration) string {
@@ -381,4 +418,22 @@ func setEnvVar(entries []v1.EnvVar, varName, value string) []v1.EnvVar {
 		Value: value,
 	}
 	return append(entries, entry)
+}
+
+// shJoin joins the arguments into a quoted form suitable to pass to `sh -c`.
+// Necessary as github.com/kballard/go-shellquote's `Join` quotes `$`.
+func shJoin(args []string) string {
+	result := ""
+	for i, arg := range args {
+		if i > 0 {
+			result += " "
+		}
+		if strings.ContainsAny(arg, " \t\r\n\"") {
+			arg := strings.ReplaceAll(arg, `"`, `\"`)
+			result += `"` + arg + `"`
+		} else {
+			result += arg
+		}
+	}
+	return result
 }

@@ -22,6 +22,9 @@ import (
 	"io"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	cfg "github.com/GoogleContainerTools/skaffold/pkg/skaffold/config"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/initializer/config"
 	"github.com/GoogleContainerTools/skaffold/testutil"
 )
@@ -50,9 +53,10 @@ func TestFlagsToConfigVersion(t *testing.T) {
 				Force:                  false,
 				Analyze:                false,
 				EnableJibInit:          false,
+				EnableJibGradleInit:    false,
 				EnableBuildpacksInit:   false,
 				EnableNewInitFormat:    false,
-				BuildpacksBuilder:      "heroku/buildpacks",
+				BuildpacksBuilder:      "gcr.io/buildpacks/builder",
 				Opts:                   opts,
 				MaxFileSize:            maxFileSize,
 			},
@@ -72,6 +76,7 @@ func TestFlagsToConfigVersion(t *testing.T) {
 				"--force",
 				"--analyze",
 				"--XXenableJibInit",
+				"--XXenableJibGradleInit",
 				"--XXenableBuildpacksInit",
 				"--XXenableNewInitFormat",
 				"--XXdefaultBuildpacksBuilder", "buildpacks/builder",
@@ -85,6 +90,7 @@ func TestFlagsToConfigVersion(t *testing.T) {
 				Force:                  true,
 				Analyze:                true,
 				EnableJibInit:          true,
+				EnableJibGradleInit:    true,
 				EnableBuildpacksInit:   true,
 				EnableNewInitFormat:    true,
 				BuildpacksBuilder:      "buildpacks/builder",
@@ -110,7 +116,7 @@ func TestFlagsToConfigVersion(t *testing.T) {
 				EnableJibInit:          true,
 				EnableBuildpacksInit:   false,
 				EnableNewInitFormat:    true,
-				BuildpacksBuilder:      "heroku/buildpacks",
+				BuildpacksBuilder:      "gcr.io/buildpacks/builder",
 				Opts:                   opts,
 				MaxFileSize:            maxFileSize,
 			},
@@ -132,7 +138,7 @@ func TestFlagsToConfigVersion(t *testing.T) {
 				EnableJibInit:          false,
 				EnableBuildpacksInit:   true,
 				EnableNewInitFormat:    true,
-				BuildpacksBuilder:      "heroku/buildpacks",
+				BuildpacksBuilder:      "gcr.io/buildpacks/builder",
 				Opts:                   opts,
 				MaxFileSize:            maxFileSize,
 			},
@@ -151,7 +157,7 @@ func TestFlagsToConfigVersion(t *testing.T) {
 
 			// we ignore Skaffold options
 			test.expectedConfig.Opts = capturedConfig.Opts
-			t.CheckErrorAndDeepEqual(test.shouldErr, err, test.expectedConfig, capturedConfig)
+			t.CheckErrorAndDeepEqual(test.shouldErr, err, test.expectedConfig, capturedConfig, cmp.AllowUnexported(cfg.StringOrUndefined{}))
 		})
 	}
 }

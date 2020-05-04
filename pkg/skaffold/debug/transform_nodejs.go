@@ -30,6 +30,9 @@ type nodeTransformer struct{}
 
 func init() {
 	containerTransforms = append(containerTransforms, nodeTransformer{})
+
+	// the `node` image's "docker-entrypoint.sh" launches the command
+	entrypointLaunchers = append(entrypointLaunchers, "docker-entrypoint.sh")
 }
 
 const (
@@ -56,10 +59,15 @@ func isLaunchingNpm(args []string) bool {
 }
 
 func (t nodeTransformer) IsApplicable(config imageConfiguration) bool {
-	if _, found := config.env["NODE_VERSION"]; found {
-		return true
+	// NODE_VERSION defined in Official Docker `node` image
+	// NODEJS_VERSION defined in RedHat's node base image
+	// NODE_ENV is a common var found to toggle debug and production
+	for _, v := range []string{"NODE_VERSION", "NODEJS_VERSION", "NODE_ENV"} {
+		if _, found := config.env[v]; found {
+			return true
+		}
 	}
-	if len(config.entrypoint) > 0 {
+	if len(config.entrypoint) > 0 && !isEntrypointLauncher(config.entrypoint) {
 		return isLaunchingNode(config.entrypoint) || isLaunchingNpm(config.entrypoint)
 	} else if len(config.arguments) > 0 {
 		return isLaunchingNode(config.arguments) || isLaunchingNpm(config.arguments)
@@ -67,14 +75,9 @@ func (t nodeTransformer) IsApplicable(config imageConfiguration) bool {
 	return false
 }
 
-func (t nodeTransformer) RuntimeSupportImage() string {
-	// no additional support required
-	return ""
-}
-
 // Apply configures a container definition for NodeJS Chrome V8 Inspector.
 // Returns a simple map describing the debug configuration details.
-func (t nodeTransformer) Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) *ContainerDebugConfiguration {
+func (t nodeTransformer) Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (ContainerDebugConfiguration, string, error) {
 	logrus.Infof("Configuring %q for node.js debugging", container.Name)
 
 	// try to find existing `--inspect` command
@@ -89,10 +92,10 @@ func (t nodeTransformer) Apply(container *v1.Container, config imageConfiguratio
 		case len(config.entrypoint) > 0 && isLaunchingNpm(config.entrypoint):
 			container.Command = rewriteNpmCommandLine(config.entrypoint, *spec)
 
-		case len(config.entrypoint) == 0 && len(config.arguments) > 0 && isLaunchingNode(config.arguments):
+		case (len(config.entrypoint) == 0 || isEntrypointLauncher(config.entrypoint)) && len(config.arguments) > 0 && isLaunchingNode(config.arguments):
 			container.Args = rewriteNodeCommandLine(config.arguments, *spec)
 
-		case len(config.entrypoint) == 0 && len(config.arguments) > 0 && isLaunchingNpm(config.arguments):
+		case (len(config.entrypoint) == 0 || isEntrypointLauncher(config.entrypoint)) && len(config.arguments) > 0 && isLaunchingNpm(config.arguments):
 			container.Args = rewriteNpmCommandLine(config.arguments, *spec)
 
 		default:
@@ -102,10 +105,10 @@ func (t nodeTransformer) Apply(container *v1.Container, config imageConfiguratio
 
 	container.Ports = exposePort(container.Ports, "devtools", spec.port)
 
-	return &ContainerDebugConfiguration{
+	return ContainerDebugConfiguration{
 		Runtime: "nodejs",
 		Ports:   map[string]uint32{"devtools": uint32(spec.port)},
-	}
+	}, "", nil
 }
 
 func retrieveNodeInspectSpec(config imageConfiguration) *inspectSpec {

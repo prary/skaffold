@@ -23,6 +23,7 @@ import (
 
 	"github.com/golang/protobuf/ptypes"
 
+	sErrors "github.com/GoogleContainerTools/skaffold/pkg/skaffold/errors"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/version"
 	"github.com/GoogleContainerTools/skaffold/proto"
@@ -127,15 +128,16 @@ func (ev *eventHandler) forEachEvent(callback func(*proto.LogEntry) error) error
 	return <-listener.errors
 }
 
-func emptyState(build latest.BuildConfig) proto.State {
+func emptyState(p latest.Pipeline, kubeContext string) proto.State {
 	builds := map[string]string{}
-	for _, a := range build.Artifacts {
+	for _, a := range p.Build.Artifacts {
 		builds[a.ImageName] = NotStarted
 	}
-	return emptyStateWithArtifacts(builds)
+	metadata := initializeMetadata(p, kubeContext)
+	return emptyStateWithArtifacts(builds, metadata)
 }
 
-func emptyStateWithArtifacts(builds map[string]string) proto.State {
+func emptyStateWithArtifacts(builds map[string]string, metadata *proto.Metadata) proto.State {
 	return proto.State{
 		BuildState: &proto.BuildState{
 			Artifacts: builds,
@@ -148,12 +150,13 @@ func emptyStateWithArtifacts(builds map[string]string) proto.State {
 		FileSyncState: &proto.FileSyncState{
 			Status: NotStarted,
 		},
+		Metadata: metadata,
 	}
 }
 
 // InitializeState instantiates the global state of the skaffold runner, as well as the event log.
-func InitializeState(build latest.BuildConfig) {
-	handler.setState(emptyState(build))
+func InitializeState(c latest.Pipeline, kc string) {
+	handler.setState(emptyState(c, kc))
 }
 
 // DeployInProgress notifies that a deployment has been started.
@@ -163,7 +166,8 @@ func DeployInProgress() {
 
 // DeployFailed notifies that non-fatal errors were encountered during a deployment.
 func DeployFailed(err error) {
-	handler.handleDeployEvent(&proto.DeployEvent{Status: Failed, Err: err.Error()})
+	errCode := sErrors.ErrorCodeFromError(err, sErrors.Deploy)
+	handler.handleDeployEvent(&proto.DeployEvent{Status: Failed, Err: err.Error(), ErrCode: errCode})
 }
 
 // DeployEvent notifies that a deployment of non fatal interesting errors during deploy.
@@ -178,9 +182,11 @@ func StatusCheckEventSucceeded() {
 }
 
 func StatusCheckEventFailed(err error) {
+	errCode := sErrors.ErrorCodeFromError(err, sErrors.StatusCheck)
 	handler.handleStatusCheckEvent(&proto.StatusCheckEvent{
-		Status: Failed,
-		Err:    err.Error(),
+		Status:  Failed,
+		Err:     err.Error(),
+		ErrCode: errCode,
 	})
 }
 
@@ -233,7 +239,8 @@ func BuildInProgress(imageName string) {
 
 // BuildFailed notifies that a build has failed.
 func BuildFailed(imageName string, err error) {
-	handler.handleBuildEvent(&proto.BuildEvent{Artifact: imageName, Status: Failed, Err: err.Error()})
+	errCode := sErrors.ErrorCodeFromError(err, sErrors.Build)
+	handler.handleBuildEvent(&proto.BuildEvent{Artifact: imageName, Status: Failed, Err: err.Error(), ErrCode: errCode})
 }
 
 // BuildComplete notifies that a build has completed.
@@ -248,7 +255,8 @@ func FileSyncInProgress(fileCount int, image string) {
 
 // FileSyncFailed notifies that a file sync has failed.
 func FileSyncFailed(fileCount int, image string, err error) {
-	handler.handleFileSyncEvent(&proto.FileSyncEvent{FileCount: int32(fileCount), Image: image, Status: Failed, Err: err.Error()})
+	errCode := sErrors.ErrorCodeFromError(err, sErrors.FileSync)
+	handler.handleFileSyncEvent(&proto.FileSyncEvent{FileCount: int32(fileCount), Image: image, Status: Failed, Err: err.Error(), ErrCode: errCode})
 }
 
 // FileSyncSucceeded notifies that a file sync has succeeded.
@@ -357,13 +365,15 @@ func (ev *eventHandler) handleFileSyncEvent(e *proto.FileSyncEvent) {
 	})
 }
 
-func LogSkaffoldMetadata(info *version.Info) {
+func LogMetaEvent() {
+	metadata := handler.state.Metadata
 	handler.logEvent(proto.LogEntry{
 		Timestamp: ptypes.TimestampNow(),
 		Event: &proto.Event{
 			EventType: &proto.Event_MetaEvent{
 				MetaEvent: &proto.MetaEvent{
-					Entry: fmt.Sprintf("Starting Skaffold: %+v", info),
+					Entry:    fmt.Sprintf("Starting Skaffold: %+v", version.Get()),
+					Metadata: metadata,
 				},
 			},
 		},
@@ -496,7 +506,7 @@ func ResetStateOnBuild() {
 	for k := range handler.getState().BuildState.Artifacts {
 		builds[k] = NotStarted
 	}
-	newState := emptyStateWithArtifacts(builds)
+	newState := emptyStateWithArtifacts(builds, handler.getState().Metadata)
 	handler.setState(newState)
 }
 

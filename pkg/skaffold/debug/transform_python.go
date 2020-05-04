@@ -17,6 +17,7 @@ limitations under the License.
 package debug
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -46,30 +47,24 @@ type ptvsdSpec struct {
 
 // isLaunchingPython determines if the arguments seems to be invoking python
 func isLaunchingPython(args []string) bool {
-	return args[0] == "python" || strings.HasSuffix(args[0], "/python") ||
-		args[0] == "python2" || strings.HasSuffix(args[0], "/python2") ||
-		args[0] == "python3" || strings.HasSuffix(args[0], "/python3")
+	return len(args) > 0 &&
+		(args[0] == "python" || strings.HasSuffix(args[0], "/python") ||
+			args[0] == "python2" || strings.HasSuffix(args[0], "/python2") ||
+			args[0] == "python3" || strings.HasSuffix(args[0], "/python3"))
 }
 
 func (t pythonTransformer) IsApplicable(config imageConfiguration) bool {
-	if _, found := config.env["PYTHON_VERSION"]; found {
-		return true
-	}
-	if len(config.entrypoint) > 0 {
+	// We can only put Python in debug mode by modifying the python command line,
+	// so looking for Python-related environment variables is insufficient.
+	if len(config.entrypoint) > 0 && !isEntrypointLauncher(config.entrypoint) {
 		return isLaunchingPython(config.entrypoint)
-	} else if len(config.arguments) > 0 {
-		return isLaunchingPython(config.arguments)
 	}
-	return false
-}
-
-func (t pythonTransformer) RuntimeSupportImage() string {
-	return "python"
+	return isLaunchingPython(config.arguments)
 }
 
 // Apply configures a container definition for Python with pydev/ptvsd
 // Returns a simple map describing the debug configuration details.
-func (t pythonTransformer) Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) *ContainerDebugConfiguration {
+func (t pythonTransformer) Apply(container *v1.Container, config imageConfiguration, portAlloc portAllocator) (ContainerDebugConfiguration, string, error) {
 	logrus.Infof("Configuring %q for python debugging", container.Name)
 
 	// try to find existing `-mptvsd` command
@@ -85,8 +80,7 @@ func (t pythonTransformer) Apply(container *v1.Container, config imageConfigurat
 			container.Args = rewritePythonCommandLine(config.arguments, *spec)
 
 		default:
-			logrus.Warnf("Skipping %q as does not appear to invoke python", container.Name)
-			return nil
+			return ContainerDebugConfiguration{}, "", fmt.Errorf("%q does not appear to invoke python", container.Name)
 		}
 	}
 
@@ -98,10 +92,10 @@ func (t pythonTransformer) Apply(container *v1.Container, config imageConfigurat
 	container.Env = setEnvVar(container.Env, "PYTHONUSERBASE", pyUserBase)
 	container.Ports = exposePort(container.Ports, "dap", spec.port)
 
-	return &ContainerDebugConfiguration{
+	return ContainerDebugConfiguration{
 		Runtime: "python",
 		Ports:   map[string]uint32{"dap": uint32(spec.port)},
-	}
+	}, "python", nil
 }
 
 func retrievePtvsdSpec(config imageConfiguration) *ptvsdSpec {

@@ -29,12 +29,13 @@ import (
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/build"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/kubernetes"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/runner/runcontext"
 	"github.com/GoogleContainerTools/skaffold/testutil"
 )
 
 func TestDeploy(t *testing.T) {
-	expectedOutput := "Waiting for deployments to stabilize"
+	expectedOutput := "Waiting for deployments to stabilize..."
 	tests := []struct {
 		description string
 		testBench   *TestBench
@@ -66,6 +67,7 @@ func TestDeploy(t *testing.T) {
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
 			t.SetupFakeKubernetesContext(api.Config{CurrentContext: "cluster1"})
+			t.Override(&kubernetes.Client, mockK8sClient)
 			t.Override(&statusCheck, dummyStatusCheck)
 
 			runner := createRunner(t, test.testBench, nil)
@@ -115,8 +117,8 @@ func TestDeployNamespace(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			t.SetupFakeKubernetesContext(
-				api.Config{CurrentContext: "cluster1"})
+			t.SetupFakeKubernetesContext(api.Config{CurrentContext: "cluster1"})
+			t.Override(&kubernetes.Client, mockK8sClient)
 			t.Override(&statusCheck, dummyStatusCheck)
 
 			runner := createRunner(t, test.testBench, nil)

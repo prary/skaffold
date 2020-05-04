@@ -44,12 +44,12 @@ import (
 func NewForConfig(runCtx *runcontext.RunContext) (*SkaffoldRunner, error) {
 	tagger, err := getTagger(runCtx)
 	if err != nil {
-		return nil, fmt.Errorf("parsing tag config: %w", err)
+		return nil, fmt.Errorf("creating tagger: %w", err)
 	}
 
 	builder, err := getBuilder(runCtx)
 	if err != nil {
-		return nil, fmt.Errorf("parsing build config: %w", err)
+		return nil, fmt.Errorf("creating builder: %w", err)
 	}
 
 	imagesAreLocal := false
@@ -57,8 +57,21 @@ func NewForConfig(runCtx *runcontext.RunContext) (*SkaffoldRunner, error) {
 		imagesAreLocal = !localBuilder.PushImages()
 	}
 
+	tester := getTester(runCtx, imagesAreLocal)
+	syncer := getSyncer(runCtx)
+
 	depLister := func(ctx context.Context, artifact *latest.Artifact) ([]string, error) {
-		return build.DependenciesForArtifact(ctx, artifact, runCtx.InsecureRegistries)
+		buildDependencies, err := build.DependenciesForArtifact(ctx, artifact, runCtx.InsecureRegistries)
+		if err != nil {
+			return nil, err
+		}
+
+		testDependencies, err := tester.TestDependencies()
+		if err != nil {
+			return nil, err
+		}
+
+		return append(buildDependencies, testDependencies...), nil
 	}
 
 	artifactCache, err := cache.NewCache(runCtx, imagesAreLocal, depLister)
@@ -66,18 +79,15 @@ func NewForConfig(runCtx *runcontext.RunContext) (*SkaffoldRunner, error) {
 		return nil, fmt.Errorf("initializing cache: %w", err)
 	}
 
-	tester := getTester(runCtx)
-	syncer := getSyncer(runCtx)
-
 	deployer, err := getDeployer(runCtx)
 	if err != nil {
-		return nil, fmt.Errorf("parsing deploy config: %w", err)
+		return nil, fmt.Errorf("creating deployer: %w", err)
 	}
 
-	defaultLabeller := deploy.NewLabeller("")
+	defaultLabeller := deploy.NewLabeller(runCtx.Opts)
 	// runCtx.Opts is last to let users override/remove any label
 	// deployer labels are added during deployment
-	labellers := []deploy.Labeller{builder, tagger, defaultLabeller, &runCtx.Opts}
+	labellers := []deploy.Labeller{builder, tagger, defaultLabeller}
 
 	builder, tester, deployer = WithTimings(builder, tester, deployer, runCtx.Opts.CacheArtifacts)
 	if runCtx.Opts.Notification {
@@ -89,7 +99,8 @@ func NewForConfig(runCtx *runcontext.RunContext) (*SkaffoldRunner, error) {
 		return nil, fmt.Errorf("creating watch trigger: %w", err)
 	}
 
-	event.InitializeState(runCtx.Cfg.Build)
+	event.InitializeState(runCtx.Cfg, runCtx.KubeContext)
+	event.LogMetaEvent()
 
 	monitor := filemon.NewMonitor()
 
@@ -199,8 +210,8 @@ func getBuilder(runCtx *runcontext.RunContext) (build.Builder, error) {
 	}
 }
 
-func getTester(runCtx *runcontext.RunContext) test.Tester {
-	return test.NewTester(runCtx)
+func getTester(runCtx *runcontext.RunContext, imagesAreLocal bool) test.Tester {
+	return test.NewTester(runCtx, imagesAreLocal)
 }
 
 func getSyncer(runCtx *runcontext.RunContext) sync.Syncer {
@@ -250,7 +261,7 @@ func getTagger(runCtx *runcontext.RunContext) (tag.Tagger, error) {
 		return &tag.ChecksumTagger{}, nil
 
 	case t.GitTagger != nil:
-		return tag.NewGitCommit(t.GitTagger.Variant)
+		return tag.NewGitCommit(t.GitTagger.Prefix, t.GitTagger.Variant)
 
 	case t.DateTimeTagger != nil:
 		return tag.NewDateTimeTagger(t.DateTimeTagger.Format, t.DateTimeTagger.TimeZone), nil

@@ -18,6 +18,7 @@ package deploy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -29,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/color"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy/resource"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/event"
 	pkgkubernetes "github.com/GoogleContainerTools/skaffold/pkg/skaffold/kubernetes"
@@ -47,7 +47,8 @@ var (
 )
 
 const (
-	tabHeader = " -"
+	tabHeader             = " -"
+	kubernetesMaxDeadline = 600
 )
 
 type resourceCounter struct {
@@ -103,7 +104,7 @@ func StatusCheck(ctx context.Context, defaultLabeller *DefaultLabeller, runCtx *
 
 func getDeployments(client kubernetes.Interface, ns string, l *DefaultLabeller, deadlineDuration time.Duration) ([]Resource, error) {
 	deps, err := client.AppsV1().Deployments(ns).List(metav1.ListOptions{
-		LabelSelector: l.RunIDKeyValueString(),
+		LabelSelector: l.RunIDSelector(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch deployments: %w", err)
@@ -112,7 +113,7 @@ func getDeployments(client kubernetes.Interface, ns string, l *DefaultLabeller, 
 	deployments := make([]Resource, 0, len(deps.Items))
 	for _, d := range deps.Items {
 		var deadline time.Duration
-		if d.Spec.ProgressDeadlineSeconds == nil {
+		if d.Spec.ProgressDeadlineSeconds == nil || *d.Spec.ProgressDeadlineSeconds == kubernetesMaxDeadline {
 			deadline = deadlineDuration
 		} else {
 			deadline = time.Duration(*d.Spec.ProgressDeadlineSeconds) * time.Second
@@ -162,8 +163,14 @@ func getDeadline(d int) time.Duration {
 }
 
 func printStatusCheckSummary(out io.Writer, r Resource, rc resourceCounter) {
+	err := r.Status().Error()
+	if errors.Is(err, context.Canceled) {
+		// Don't print the status summary if the user ctrl-Cd
+		return
+	}
+
 	status := fmt.Sprintf("%s %s", tabHeader, r)
-	if err := r.Status().Error(); err != nil {
+	if err != nil {
 		event.ResourceStatusCheckEventFailed(r.String(), err)
 		status = fmt.Sprintf("%s failed.%s Error: %s.",
 			status,
@@ -174,7 +181,8 @@ func printStatusCheckSummary(out io.Writer, r Resource, rc resourceCounter) {
 		event.ResourceStatusCheckEventSucceeded(r.String())
 		status = fmt.Sprintf("%s is ready.%s", status, getPendingMessage(rc.deployments.pending, rc.deployments.total))
 	}
-	color.Default.Fprintln(out, status)
+
+	fmt.Fprintln(out, status)
 }
 
 // Print resource statuses until all status check are completed or context is cancelled.
@@ -204,7 +212,7 @@ func printStatus(resources []Resource, out io.Writer) bool {
 		allResourcesCheckComplete = false
 		if str := r.ReportSinceLastUpdated(); str != "" {
 			event.ResourceStatusCheckEventUpdated(r.String(), str)
-			color.Default.Fprintln(out, tabHeader, trimNewLine(str))
+			fmt.Fprintln(out, tabHeader, trimNewLine(str))
 		}
 	}
 	return allResourcesCheckComplete

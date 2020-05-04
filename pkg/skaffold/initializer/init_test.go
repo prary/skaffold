@@ -208,8 +208,11 @@ func TestDoInitAnalyze(t *testing.T) {
 		testutil.Run(t, test.name, func(t *testutil.T) {
 			var out bytes.Buffer
 			t.Chdir(test.dir)
+
 			err := DoInit(context.TODO(), &out, test.config)
-			t.CheckErrorAndDeepEqual(false, err, test.expectedOut, out.String())
+
+			t.CheckNoError(err)
+			t.CheckDeepEqual(test.expectedOut, out.String())
 		})
 	}
 }
@@ -227,10 +230,10 @@ func strip(s string) string {
 }
 
 func checkGeneratedConfig(t *testutil.T, dir string) {
-	expectedOutput, err := schema.ParseConfig(filepath.Join(dir, "skaffold.yaml"), false)
+	expectedOutput, err := schema.ParseConfig(filepath.Join(dir, "skaffold.yaml"))
 	t.CheckNoError(err)
 
-	output, err := schema.ParseConfig(filepath.Join(dir, "skaffold.yaml.out"), false)
+	output, err := schema.ParseConfig(filepath.Join(dir, "skaffold.yaml.out"))
 	t.CheckNoError(err)
 	t.CheckDeepEqual(expectedOutput, output)
 }

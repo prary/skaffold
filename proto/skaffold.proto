@@ -26,6 +26,35 @@ message State {
     StatusCheckState statusCheckState = 5;
     FileSyncState fileSyncState = 6;
     repeated DebuggingContainerEvent debuggingContainers = 7;
+    Metadata metadata = 8;
+}
+
+message Metadata {
+    BuildMetadata build = 1;
+    DeployMetadata deploy = 2;
+    // Additional key value pairs to describe the build pipeline
+    map<string, string> additional = 99;
+}
+
+message BuildMetadata {
+  message Builder {
+      BuilderType type = 1;
+      int32 count = 2;
+  }
+  int32 numberOfArtifacts = 1;
+  repeated Builder builders= 2;
+  BuildType type = 3;
+  // Additional key value pairs to describe the deploy pipeline
+  map<string, string> additional = 99;
+}
+
+message DeployMetadata {
+    message Deployer {
+        DeployerType type = 1;
+        int32 count = 2;
+    }
+    repeated Deployer deployers = 1;
+    ClusterType cluster = 2;
 }
 
 // `BuildState` maps Skaffold artifacts to their current build states
@@ -82,6 +111,8 @@ message Event {
 message MetaEvent {
     // entry, for example: `"Starting Skaffold: {Version:v0.39.0-16-g5bb7c9e0 ConfigVersion:skaffold/v1 GitVersion: GitCommit:5bb7c9e078e4d522a5ffc42a2f1274fd17d75902 GitTreeState:dirty BuildDate01:29Z GoVersion:go1.13rc1 Compiler:gc Platform:linux/amd64}"`
     string entry = 1;
+    // Metadata describing skaffold pipeline
+    Metadata metadata = 2;
 }
 
 // `BuildEvent` describes the build status per artifact, and will be emitted by Skaffold anytime a build starts or finishes, successfully or not.
@@ -90,6 +121,7 @@ message BuildEvent {
     string artifact = 1; // artifact name
     string status = 2; // artifact build status oneof: InProgress, Completed, Failed
     string err = 3; // error when build status is Failed.
+    ErrorCode errCode = 4; // error code representing the error
 }
 
 // `DeployEvent` represents the status of a deployment, and is emitted by Skaffold
@@ -97,6 +129,7 @@ message BuildEvent {
 message DeployEvent {
     string status = 1; // deployment status oneof: InProgress, Completed, Failed
     string err = 2; // error when status is Failed
+    ErrorCode errCode = 3; // error code representing the error
 }
 
 // `StatusCheckEvent` describes if the status check for kubernetes rollout has started, is in progress, has succeeded or failed.
@@ -104,6 +137,7 @@ message StatusCheckEvent {
     string status = 1;
     string message = 2;
     string err = 3;
+    ErrorCode errCode = 4; // error code representing the error
 }
 
 // A Resource StatusCheck Event, indicates progress for each kubernetes deployment.
@@ -137,6 +171,7 @@ message FileSyncEvent {
     string image = 2; // the container image to which files are sycned.
     string status = 3; // status of file sync. one of: Not Started, In progress, Succeeded, Failed.
     string err = 4; // error in case of status failed.
+    ErrorCode errCode = 5; // error code representing the error
 }
 
 // DebuggingContainerEvent is raised when a debugging container is started or terminated
@@ -211,4 +246,109 @@ service SkaffoldService {
         };
     }
 
+}
+
+// Enum indicating builders used
+enum BuilderType {
+    // Could not determune builder type
+    UNKNOWN_BUILDER_TYPE = 0;
+    // JIB Builder
+    JIB = 1;
+    // Bazel Builder
+    BAZEL = 2;
+    // Buildpacks Builder
+    BUILDPACKS = 3;
+    // Custom Builder
+    CUSTOM = 4;
+    // Kaniko Builder
+    KANIKO = 5;
+    // Docker Builder
+    DOCKER = 6;
+}
+
+// Enum indicating build type i.e. local, cluster vs GCB
+enum BuildType {
+    // Could not determine Build Type
+    UNKNOWN_BUILD_TYPE = 0;
+    // Cluster Build
+    CLUSTER = 1;
+    // GCB Build
+    GCB = 2;
+    // Local Build
+    LOCAL = 3;
+}
+
+// Enum indicating deploy tools used
+enum DeployerType {
+    // Could not determine Deployer Type
+    UNKNOWN_DEPLOYER_TYPE = 0;
+    // Helm Deployer
+    HELM = 1;
+    // Kustomize Deployer
+    KUSTOMIZE = 2;
+    // Kubectl Deployer
+    KUBECTL = 3;
+}
+
+// Enum indicating cluster type the application is deployed to
+enum ClusterType {
+    // Could not determine Cluster Type
+    UNKNOWN_CLUSTER_TYPE = 0;
+    // Minikube Cluster
+    MINIKUBE = 1;
+    // GKE cluster
+    GKE = 2;
+    // All Cluster except Minikube and GKE
+    OTHER = 3;
+}
+
+// Enum for error codes
+enum ErrorCode {
+    // Could not determine error
+    COULD_NOT_DETERMINE = 0;
+
+    // No Error codes
+
+    // Status Check Success
+    STATUS_CHECK_NO_ERROR = 200;
+
+
+    // Container errors
+
+    // Container image pull error
+    STATUS_CHECK_IMAGE_PULL_ERR = 300;
+    // Container creating error
+    STATUS_CHECK_CONTAINER_CREATING = 301;
+    // Container run error
+    STATUS_CHECK_RUN_CONTAINER_ERR = 302;
+    // Container is already terminated
+    STATUS_CHECK_CONTAINER_TERMINATED = 303;
+    // Container restarting error
+    STATUS_CHECK_CONTAINER_RESTARTING = 356;
+
+    // K8 infra errors
+
+    // Node memory pressure error
+    STATUS_CHECK_NODE_MEMORY_PRESSURE = 400;
+    // Node disk pressure error
+    STATUS_CHECK_NODE_DISK_PRESSURE = 401;
+    // Node network unavailable error
+    STATUS_CHECK_NODE_NETWORK_UNAVAILABLE = 402;
+    // Node PID pressure error
+    STATUS_CHECK_NODE_PID_PRESSURE = 403;
+    // Node unschedulable error
+    STATUS_CHECK_NODE_UNSCHEDULABLE= 404;
+    // Node unreachable error
+    STATUS_CHECK_NODE_UNREACHABLE = 405;
+    // Node not ready error
+    STATUS_CHECK_NODE_NOT_READY= 406;
+
+    // Unknown Error Codes
+
+    // Status Check error unknown
+    STATUS_CHECK_UNKNOWN = 501;
+    // Container is unschedulable due to unknown reasons
+    STATUS_CHECK_UNKNOWN_UNSCHEDULABLE = 502;
+    // Container is waiting due to unknown reason
+    STATUS_CHECK_CONTAINER_WAITING_UNKNOWN = 503;
 }

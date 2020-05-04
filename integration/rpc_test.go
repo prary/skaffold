@@ -18,7 +18,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -28,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb" //nolint:golint,staticcheck
 	"github.com/golang/protobuf/ptypes/empty"
 	"google.golang.org/grpc"
 
@@ -51,7 +50,7 @@ func TestEventsRPC(t *testing.T) {
 	}
 
 	rpcAddr := randomPort()
-	setupSkaffoldWithArgs(t, "--rpc-port", rpcAddr)
+	setupSkaffoldWithArgs(t, "--rpc-port", rpcAddr, "--status-check=false")
 
 	// start a grpc client and make sure we can connect properly
 	var (
@@ -117,11 +116,15 @@ func TestEventsRPC(t *testing.T) {
 		switch entry.Event.GetEventType().(type) {
 		case *proto.Event_MetaEvent:
 			metaEntries++
+			t.Logf("meta event %d: %v", metaEntries, entry.Event)
 		case *proto.Event_BuildEvent:
 			buildEntries++
+			t.Logf("build event %d: %v", buildEntries, entry.Event)
 		case *proto.Event_DeployEvent:
 			deployEntries++
+			t.Logf("deploy event %d: %v", deployEntries, entry.Event)
 		default:
+			t.Logf("unknown event: %v", entry.Event)
 		}
 	}
 	// make sure we have exactly 1 meta entry, 2 deploy entries and 2 build entries
@@ -152,7 +155,7 @@ func TestEventLogHTTP(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
 			httpAddr := randomPort()
-			setupSkaffoldWithArgs(t, "--rpc-http-port", httpAddr)
+			setupSkaffoldWithArgs(t, "--rpc-http-port", httpAddr, "--status-check=false")
 			time.Sleep(500 * time.Millisecond) // give skaffold time to process all events
 
 			httpResponse, err := http.Get(fmt.Sprintf("http://localhost:%s%s", httpAddr, test.endpoint))
@@ -323,7 +326,7 @@ func retrieveHTTPState(t *testing.T, httpAddr string) proto.State {
 	if err != nil {
 		t.Errorf("error reading body from http response: %s", err.Error())
 	}
-	if err := json.Unmarshal(b, &httpState); err != nil {
+	if err := jsonpb.UnmarshalString(string(b), &httpState); err != nil {
 		t.Errorf("error converting http response to proto: %s", err.Error())
 	}
 	return httpState
